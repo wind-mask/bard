@@ -20,17 +20,17 @@ pub fn get_lyrics_status(lyrics: &[LyricLine], position: f64) -> LyricsStatus {
             // Check if there's a next line
             if i < lyrics.len() - 1 {
                 let next_line = &lyrics[i + 1].text;
-                return LyricsStatus {
+                LyricsStatus {
                     current_line: current_line.to_string(),
                     next_line: next_line.to_string(),
                     next_timestamp: Some(lyrics[i + 1].timestamp),
-                };
+                }
             } else {
-                return LyricsStatus {
+                LyricsStatus {
                     current_line: current_line.to_string(),
                     next_line: String::new(),
                     next_timestamp: None,
-                };
+                }
             }
         }
         None => {
@@ -46,11 +46,11 @@ pub fn get_lyrics_status(lyrics: &[LyricLine], position: f64) -> LyricsStatus {
                 };
             }
 
-            return LyricsStatus {
+            LyricsStatus {
                 current_line: String::new(),
                 next_line: String::new(),
                 next_timestamp: None,
-            };
+            }
         }
     }
 }

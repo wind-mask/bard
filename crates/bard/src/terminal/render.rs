@@ -35,7 +35,7 @@ fn get_current_line_index(lyrics: &[LyricLine], position: f64) -> usize {
         .map(|(i, _)| i)
         .last();
 
-    return current_index.unwrap_or(0);
+    current_index.unwrap_or(0)
 }
 
 pub fn parse_color(color_str: &str) -> Color {
@@ -65,7 +65,7 @@ impl TerminalDisplay {
         // First create a raw terminal
         let raw_terminal = io::stdout().into_raw_mode()?;
         // Then wrap it in AlternateScreen
-        let stdout = AlternateScreen::from(raw_terminal.into_alternate_screen()?);
+        let stdout = raw_terminal.into_alternate_screen()?;
         // Now create the backend with the AlternateScreen
         let backend = TermionBackend::new(stdout);
         // Finally create the terminal with the backend
@@ -85,7 +85,7 @@ impl TerminalDisplay {
             }
             Err(e) => {
                 eprintln!("Error loading config: {}", e);
-                Err(io::Error::new(io::ErrorKind::Other, "Error loading config"))
+                Err(io::Error::other("Error loading config"))
             }
         }
     }

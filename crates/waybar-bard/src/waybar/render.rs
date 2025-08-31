@@ -2,10 +2,11 @@ use shared::models::SongInfo;
 
 use crate::models::WaybarOutput;
 
-pub fn render_no_song() -> () {
+pub fn render_no_song() {
     // No song playing
     let output = WaybarOutput {
-        text: "No song playing".to_string(),
+        // text: "No song playing".to_string(),
+        text: String::new(),
         alt: "".to_string(),
         tooltip: "".to_string(),
         class: "no-song".to_string(),
@@ -13,7 +14,7 @@ pub fn render_no_song() -> () {
     println!("{}", serde_json::to_string(&output).unwrap());
 }
 
-pub fn render_song_info(song_info: &SongInfo) -> () {
+pub fn render_song_info(song_info: &SongInfo) {
     let parsed_text = format!("{} - {}", song_info.artist, song_info.title);
     let output = WaybarOutput {
         text: parsed_text.to_string(),
@@ -24,7 +25,7 @@ pub fn render_song_info(song_info: &SongInfo) -> () {
     println!("{}", serde_json::to_string(&output).unwrap());
 }
 
-pub fn render_lyrics(current_lyric_line: String, next_lyric_line: String, tooltip: String) -> () {
+pub fn render_lyrics(current_lyric_line: String, next_lyric_line: String, tooltip: String) {
     let output = get_lyrics_output(current_lyric_line, next_lyric_line, tooltip);
     println!("{}", serde_json::to_string(&output).unwrap());
 }

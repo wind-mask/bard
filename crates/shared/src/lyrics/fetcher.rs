@@ -1,4 +1,6 @@
 use anyhow::Result;
+use lofty::file::TaggedFileExt;
+use lofty::tag::ItemKey;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,6 +12,21 @@ use crate::models::SongInfo;
 use crate::tidal::fetch_lyrics;
 
 pub async fn get_lyrics(song: &SongInfo) -> Result<Option<Vec<LyricLine>>> {
+    // 先获取元数据歌词
+    if let Some(url) = &song.url {
+        // url like "file:///home/user/Music/Artist - Title.mp3"
+        let music_path = url.trim_start_matches("file://");
+        use lofty::read_from_path;
+        let lyrics = read_from_path(music_path)
+            .ok()
+            .as_ref()
+            .and_then(|tagged_file| tagged_file.primary_tag())
+            .and_then(|tag| tag.get_string(&ItemKey::Lyrics))
+            .and_then(|s| parse_lyrics(s).into());
+        if lyrics.is_some() {
+            return Ok(lyrics);
+        }
+    }
     // Expand the home directory in the path
     let config = Config::load()?;
     let lyrics_dir = &config.lyrics_folder;

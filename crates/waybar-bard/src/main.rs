@@ -66,8 +66,8 @@ fn update_lyrics(lyrics_result: &Result<Option<Vec<LyricLine>>>, song: &SongInfo
                 return Ok(());
             }
             // Find current lyric line based on position
-            let current_lyric = get_lyrics_status(&lyrics_data, song.position);
-            let tooltip = format_lyrics_for_tooltip(&lyrics_data);
+            let current_lyric = get_lyrics_status(lyrics_data, song.position);
+            let tooltip = format_lyrics_for_tooltip(lyrics_data);
 
             waybar::render_lyrics(current_lyric.current_line, current_lyric.next_line, tooltip);
             // Calculate sleep duration based on next lyric timestamp

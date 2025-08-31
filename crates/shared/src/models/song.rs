@@ -10,4 +10,5 @@ pub struct SongInfo {
     pub title: String,
     pub position: f64,
     pub status: SongStatus,
+    pub url: Option<String>,
 }

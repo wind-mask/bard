@@ -32,14 +32,12 @@ fn main() -> Result<()> {
     let (tx, rx) = std::sync::mpsc::channel();
     thread::spawn(move || {
         let stdin = io::stdin();
-        for evt in stdin.keys() {
-            if let Ok(key) = evt {
-                if tx.send(key).is_err() {
-                    break;
-                }
-                if key == Key::Char('q') {
-                    break;
-                }
+        for key in stdin.keys().flatten() {
+            if tx.send(key).is_err() {
+                break;
+            }
+            if key == Key::Char('q') {
+                break;
             }
         }
     });
@@ -100,10 +98,10 @@ fn update_lyrics(
             }
 
             // Update terminal with current lyrics
-            terminal.update_lyrics(&lyrics_data, song.position)?;
+            terminal.update_lyrics(lyrics_data, song.position)?;
 
             // Calculate sleep duration based on next lyric timestamp
-            let current_lyric = get_lyrics_status(&lyrics_data, song.position);
+            let current_lyric = get_lyrics_status(lyrics_data, song.position);
 
             if let Some(next_timestamp) = current_lyric.next_timestamp {
                 let time_until_next = next_timestamp - song.position;
