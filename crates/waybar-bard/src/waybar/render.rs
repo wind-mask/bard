@@ -2,6 +2,7 @@ use shared::models::SongInfo;
 
 use crate::models::WaybarOutput;
 
+/// hidden
 pub fn render_no_song() {
     // No song playing
     let output = WaybarOutput {
@@ -10,6 +11,28 @@ pub fn render_no_song() {
         alt: "".to_string(),
         tooltip: "".to_string(),
         class: "no-song".to_string(),
+    };
+    println!("{}", serde_json::to_string(&output).unwrap());
+}
+
+/// empty but show
+pub fn render_just(){
+    // Output nothing (hidden state)
+    let output = WaybarOutput {
+        text: "...".to_string(),
+        alt: "".to_string(),
+        tooltip: "".to_string(),
+        class: "has-song".to_string(),
+    };
+    println!("{}", serde_json::to_string(&output).unwrap());
+}
+pub fn render_empty() {
+    // Output nothing (hidden state)
+    let output = WaybarOutput {
+        text: String::new(),
+        alt: "".to_string(),
+        tooltip: "".to_string(),
+        class: "hidden".to_string(),
     };
     println!("{}", serde_json::to_string(&output).unwrap());
 }

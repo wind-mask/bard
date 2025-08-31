@@ -1,3 +1,3 @@
 mod render;
 
-pub use render::{render_lyrics, render_no_song, render_song_info};
+pub use render::{render_lyrics, render_no_song, render_song_info, render_empty,render_just};

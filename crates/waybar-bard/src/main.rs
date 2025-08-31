@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tokio::runtime::Runtime;
+use std::sync::atomic::{AtomicBool, Ordering};
+use signal_hook::{consts::SIGUSR1, iterator::Signals};
 
 mod models;
 mod waybar;
@@ -21,9 +23,37 @@ fn main() -> () {
     // Track current song path
     let current_song_id = Arc::new(Mutex::new(String::new()));
     let lyrics = Arc::new(Mutex::new(Result::<Option<Vec<LyricLine>>>::Ok(None)));
+    
+    // State to track if output should be hidden
+    let hidden = Arc::new(AtomicBool::new(false));
+
+    // Setup signal handler for SIGUSR1
+    let hidden_clone = hidden.clone();
+    thread::spawn(move || {
+        let mut signals = Signals::new(&[SIGUSR1]).expect("Failed to register signal handler");
+        for _sig in signals.forever() {
+            // Toggle hidden state
+            let current = hidden_clone.load(Ordering::Relaxed);
+            hidden_clone.store(!current, Ordering::Relaxed);
+            if current == false {
+                // If now hidden, clear the output
+                waybar::render_empty();
+            }else {
+                waybar::render_just();
+            }
+            eprintln!("waybar-bard: Toggled hidden state to {}", !current);
+        }
+    });
 
     // Main loop
     loop {
+        // Check if output should be hidden
+        if hidden.load(Ordering::Relaxed) {
+            waybar::render_empty();
+            thread::sleep(Duration::from_secs(1));
+            continue;
+        }
+
         // Get current song info from player
         let song_info = player::get_current_song(&config);
 
