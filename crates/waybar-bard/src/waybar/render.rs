@@ -16,7 +16,7 @@ pub fn render_no_song() {
 }
 
 /// empty but show
-pub fn render_just(){
+pub fn render_just() {
     // Output nothing (hidden state)
     let output = WaybarOutput {
         text: "...".to_string(),
