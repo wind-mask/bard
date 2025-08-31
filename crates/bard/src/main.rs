@@ -105,14 +105,25 @@ fn update_lyrics(
 
             if let Some(next_timestamp) = current_lyric.next_timestamp {
                 let time_until_next = next_timestamp - song.position;
-                if time_until_next > 0.0 {
-                    // Sleep until the next lyric (with a small safety margin)
-                    thread::sleep(Duration::from_secs_f64(time_until_next.max(0.01).min(1.0)));
+                // 对于逐字歌词，使用更短的更新间隔
+                let has_word_timing = lyrics_data.iter().any(|line| !line.words.is_empty());
+                let sleep_duration = if has_word_timing {
+                    // 逐字歌词需要更频繁的更新
+                    time_until_next.max(0.05).min(0.5)
                 } else {
-                    thread::sleep(Duration::from_millis(100));
+                    time_until_next.max(0.01).min(1.0)
+                };
+
+                if time_until_next > 0.0 {
+                    thread::sleep(Duration::from_secs_f64(sleep_duration));
+                } else {
+                    thread::sleep(Duration::from_millis(50));
                 }
             } else {
-                thread::sleep(Duration::from_secs(1));
+                // 检查是否有逐字时间戳，如果有则更频繁更新
+                let has_word_timing = lyrics_data.iter().any(|line| !line.words.is_empty());
+                let sleep_duration = if has_word_timing { 0.2 } else { 1.0 };
+                thread::sleep(Duration::from_secs_f64(sleep_duration));
             }
         }
         Ok(None) => {

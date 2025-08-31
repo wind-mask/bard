@@ -67,24 +67,41 @@ fn update_lyrics(lyrics_result: &Result<Option<Vec<LyricLine>>>, song: &SongInfo
             }
             // Find current lyric line based on position
             let current_lyric = get_lyrics_status(lyrics_data, song.position);
-            let tooltip = format_lyrics_for_tooltip(lyrics_data);
 
-            waybar::render_lyrics(current_lyric.current_line, current_lyric.next_line, tooltip);
-            // Calculate sleep duration based on next lyric timestamp
-            if let Some(next_timestamp) = current_lyric.next_timestamp {
+            // 构建增强的tooltip，包含翻译
+            let mut tooltip = format_lyrics_for_tooltip(lyrics_data);
+            if let Some(translation) = &current_lyric.translation {
+                tooltip = format!("{}\n\n当前翻译: {}", tooltip, translation);
+            }
+
+            // 渲染歌词，如果有翻译就显示翻译
+            let display_current = if let Some(trans) = &current_lyric.translation {
+                format!("{}\n{}", current_lyric.current_line, trans)
+            } else {
+                current_lyric.current_line.clone()
+            };
+
+            waybar::render_lyrics(display_current, current_lyric.next_line, tooltip);
+
+            // Calculate sleep duration based on next lyric timestamp or word timing
+            let sleep_duration = if let Some(next_timestamp) = current_lyric.next_timestamp {
                 let time_until_next = next_timestamp - song.position;
                 if time_until_next > 0.0 {
-                    // Sleep until the next lyric (with a small safety margin)
-                    // Also ensure the sleep time doesn't exceed a maximum value (the user could switch songs in the meantime, if if the wait is too long it would bug)
-                    thread::sleep(Duration::from_secs_f64(time_until_next.max(0.01).min(5.0)));
+                    // 对于逐字歌词，使用更短的更新间隔
+                    time_until_next.max(0.01).min(2.0)
                 } else {
-                    // Fallback to shorter sleep if timing is off
-                    thread::sleep(Duration::from_millis(100));
+                    0.1
                 }
             } else {
-                // No next lyric, sleep for a longer time
-                thread::sleep(Duration::from_secs(2));
-            }
+                // 对于逐字歌词，使用更频繁的更新
+                if !lyrics_data.is_empty() && !lyrics_data[0].words.is_empty() {
+                    0.2 // 200ms更新一次以支持逐字高亮
+                } else {
+                    2.0
+                }
+            };
+
+            thread::sleep(Duration::from_secs_f64(sleep_duration));
         }
         Ok(None) => {
             // No lyrics found

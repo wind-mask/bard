@@ -20,10 +20,13 @@ pub struct TerminalDisplay {
     pub terminal: Terminal<TermionBackend<AlternateScreen<RawTerminal<io::Stdout>>>>,
     pub default_color: Color,
     pub focused_color: Color,
+    pub word_highlight_color: Color,
+    pub translation_color: Color,
 }
 
 // TODO: Move these methods to a separate folder inside this module src
 const POSITION_OFFSET_SECONDS: f64 = 1.0;
+
 fn get_current_line_index(lyrics: &[LyricLine], position: f64) -> usize {
     // Include offset in position comparison
     let adjusted_position = position + POSITION_OFFSET_SECONDS;
@@ -36,6 +39,43 @@ fn get_current_line_index(lyrics: &[LyricLine], position: f64) -> usize {
         .last();
 
     current_index.unwrap_or(0)
+}
+
+fn get_word_highlighted_line(lyric: &LyricLine, position: f64) -> Vec<Span<'_>> {
+    let adjusted_position = position + POSITION_OFFSET_SECONDS;
+    let mut spans = Vec::new();
+
+    if lyric.words.is_empty() {
+        // 没有逐字时间戳，返回普通文本
+        spans.push(Span::raw(&lyric.text));
+        return spans;
+    }
+
+    for (i, word) in lyric.words.iter().enumerate() {
+        let style = if adjusted_position >= word.start_time && adjusted_position < word.end_time {
+            // 当前正在唱的词
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else if adjusted_position >= word.end_time {
+            // 已经唱过的词
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::ITALIC)
+        } else {
+            // 还没唱到的词
+            Style::default().fg(Color::White)
+        };
+
+        spans.push(Span::styled(&word.text, style));
+
+        // 在词之间添加空格（除了最后一个词）
+        if i < lyric.words.len() - 1 {
+            spans.push(Span::raw(" "));
+        }
+    }
+
+    spans
 }
 
 pub fn parse_color(color_str: &str) -> Color {
@@ -76,11 +116,15 @@ impl TerminalDisplay {
             Ok(config) => {
                 let default_color = parse_color(&config.colors.default_fg);
                 let focused_color = parse_color(&config.colors.focused_fg);
+                let word_highlight_color = Color::Yellow; // 当前词高亮色
+                let translation_color = Color::Cyan; // 翻译文本颜色
                 // Return the TerminalDisplay instance
                 Ok(Self {
                     terminal,
                     default_color,
                     focused_color,
+                    word_highlight_color,
+                    translation_color,
                 })
             }
             Err(e) => {
@@ -96,7 +140,7 @@ impl TerminalDisplay {
         current_position: f64,
     ) -> io::Result<()> {
         let current_index = get_current_line_index(lyrics, current_position);
-        self.render_lyrics(lyrics, current_index)
+        self.render_lyrics_with_timing(lyrics, current_index, current_position)
     }
 
     pub fn render_lyrics(
@@ -104,17 +148,26 @@ impl TerminalDisplay {
         lyrics: &Vec<LyricLine>,
         current_index: usize,
     ) -> io::Result<()> {
+        self.render_lyrics_with_timing(lyrics, current_index, 0.0)
+    }
+
+    pub fn render_lyrics_with_timing(
+        &mut self,
+        lyrics: &Vec<LyricLine>,
+        current_index: usize,
+        current_position: f64,
+    ) -> io::Result<()> {
         self.terminal.draw(|frame| {
             let size = frame.area();
 
             // Calculate how many lines can fit in the terminal
             let available_height = size.height as usize;
 
-            // Reserve some space for potential borders/margins
-            let max_displayable_lines = available_height.saturating_sub(2);
+            // Reserve some space for potential borders/margins and translations
+            let max_displayable_lines = available_height.saturating_sub(4);
 
             // Calculate how many lines to show before/after the current line
-            let lines_before = max_displayable_lines / 2;
+            let lines_before = max_displayable_lines / 3; // 减少前面的行数为翻译留空间
             let lines_after = max_displayable_lines - lines_before;
 
             // Calculate visible lyrics range
@@ -127,15 +180,32 @@ impl TerminalDisplay {
 
             for (i, lyric) in visible_lyrics.iter().enumerate() {
                 let actual_index = i + start_index;
-                let style = if actual_index == current_index {
-                    Style::default()
-                        .fg(self.focused_color)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(self.default_color)
-                };
 
-                text_lines.push(Line::from(Span::styled(&lyric.text, style)));
+                if actual_index == current_index {
+                    // 当前行 - 使用逐字高亮
+                    let word_spans = get_word_highlighted_line(lyric, current_position);
+                    text_lines.push(Line::from(word_spans));
+
+                    // 检查是否有翻译（下一行是否是相近时间戳且没有词时间戳）
+                    if i + 1 < visible_lyrics.len() {
+                        let next_lyric = &visible_lyrics[i + 1];
+                        if next_lyric.timestamp - lyric.timestamp < 1.0
+                            && next_lyric.words.is_empty()
+                        {
+                            // 添加翻译行
+                            text_lines.push(Line::from(Span::styled(
+                                &next_lyric.text,
+                                Style::default()
+                                    .fg(self.translation_color)
+                                    .add_modifier(Modifier::ITALIC),
+                            )));
+                        }
+                    }
+                } else {
+                    // 其他行 - 普通样式
+                    let style = Style::default().fg(self.default_color);
+                    text_lines.push(Line::from(Span::styled(&lyric.text, style)));
+                }
             }
 
             let text_lines_len = text_lines.len() as u16;
