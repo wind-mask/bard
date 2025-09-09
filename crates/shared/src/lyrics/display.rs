@@ -1,4 +1,3 @@
-
 use crate::models::{LyricLine, LyricsStatus};
 
 const POSITION_OFFSET_SECONDS: f64 = 1.0;
@@ -30,7 +29,6 @@ pub fn get_lyrics_status(lyrics: &[LyricLine], position: f64) -> LyricsStatus {
 
             // 检查是否有下一行
             let (next_line, next_timestamp, translation) = if i < lyrics.len() - 1 {
-               
                 let next = &lyrics[i + 1];
                 // // 检查下一行是否是翻译（时间戳相近且没有词时间戳）
                 // if next.timestamp - current_line.timestamp < 1.0 && next.words.is_empty() {
@@ -46,13 +44,15 @@ pub fn get_lyrics_status(lyrics: &[LyricLine], position: f64) -> LyricsStatus {
                 //         actual_next.map(|l| l.timestamp),
                 //         Some(next.text.clone()),
                 //     )
-                // } else 
+                // } else
                 {
-                
-                    (next.text.clone(), Some(next.timestamp), current_line.translation.clone())
+                    (
+                        next.text.clone(),
+                        Some(next.timestamp),
+                        current_line.translation.clone(),
+                    )
                 }
-            } 
-            else {
+            } else {
                 (String::new(), None, None)
             };
 
@@ -68,14 +68,22 @@ pub fn get_lyrics_status(lyrics: &[LyricLine], position: f64) -> LyricsStatus {
             // No current line found, check if there's an upcoming line
             if !lyrics.is_empty() {
                 LyricsStatus {
-                    current_line: LyricLine { timestamp: 0.0, text: String::new(), translation: None },
+                    current_line: LyricLine {
+                        timestamp: 0.0,
+                        text: String::new(),
+                        translation: None,
+                    },
                     next_line: lyrics[0].text.clone(),
                     next_timestamp: Some(lyrics[0].timestamp),
                     translation: None,
                 }
             } else {
                 LyricsStatus {
-                    current_line: LyricLine { timestamp: 0.0, text: String::new(), translation: None },
+                    current_line: LyricLine {
+                        timestamp: 0.0,
+                        text: String::new(),
+                        translation: None,
+                    },
                     next_line: String::new(),
                     next_timestamp: None,
                     translation: None,
@@ -88,8 +96,7 @@ pub fn get_lyrics_status(lyrics: &[LyricLine], position: f64) -> LyricsStatus {
 pub fn format_lyrics_for_tooltip(lyrics: &[LyricLine]) -> String {
     lyrics
         .iter()
-        .map(|line| format!("{:#?}" , line))
-        
+        .map(|line| format!("{:#?}", line))
         .collect::<Vec<String>>()
         .join("\n")
 }
@@ -117,7 +124,5 @@ pub fn get_highlighted_lyrics(lyrics_status: &LyricsStatus, current_line: &Lyric
     //         current_line.text.clone()
     //     }
     // } else
-     {
-        current_line.text.clone()
-    }
+    { current_line.text.clone() }
 }

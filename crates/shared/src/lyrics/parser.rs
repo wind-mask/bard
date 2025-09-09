@@ -41,15 +41,18 @@ pub fn parse_lyrics(lyrics_text: &str) -> Vec<LyricLine> {
             if i + 1 < lines_vec.len() {
                 let next_line = lines_vec[i + 1];
                 if let Some(next_caps) = timestamp_regex.captures(next_line) {
-                    let next_minutes: f64 = next_caps.get(1).unwrap().as_str().parse().unwrap_or(0.0);
-                    let next_seconds: f64 = next_caps.get(2).unwrap().as_str().parse().unwrap_or(0.0);
-                    let next_centiseconds: f64 = next_caps.get(3).unwrap().as_str().parse().unwrap_or(0.0);
-                    let next_timestamp = next_minutes * 60.0 + next_seconds + next_centiseconds / 100.0;
-                    
+                    let next_minutes: f64 =
+                        next_caps.get(1).unwrap().as_str().parse().unwrap_or(0.0);
+                    let next_seconds: f64 =
+                        next_caps.get(2).unwrap().as_str().parse().unwrap_or(0.0);
+                    let next_centiseconds: f64 =
+                        next_caps.get(3).unwrap().as_str().parse().unwrap_or(0.0);
+                    let next_timestamp =
+                        next_minutes * 60.0 + next_seconds + next_centiseconds / 100.0;
+
                     // 如果时间戳相同（允许很小的误差），认为是翻译
-                    
-                    if next_timestamp ==timestamp 
-                    {
+
+                    if next_timestamp == timestamp {
                         // dbg!("Found translation line:", next_line);
 
                         let next_content = next_caps.get(4).unwrap().as_str();

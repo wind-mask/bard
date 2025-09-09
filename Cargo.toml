@@ -2,6 +2,6 @@
 resolver = "2"
 members = [
     "crates/waybar-bard",
-    "crates/bard",
+    # "crates/bard",
     "crates/shared",
 ]
