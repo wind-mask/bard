@@ -10,7 +10,7 @@ use crate::lyrics::parser::parse_lyrics;
 use crate::models::LyricLine;
 use crate::models::SongInfo;
 
-pub async fn get_lyrics(song: &SongInfo) -> Result<Option<Vec<LyricLine>>> {
+pub  fn get_lyrics(song: &SongInfo) -> Result<Option<Vec<LyricLine>>> {
     // 先获取元数据歌词
     if let Some(url) = &song.url {
         // url like "file:///home/user/Music/Artist - Title.mp3"
@@ -45,10 +45,7 @@ pub async fn get_lyrics(song: &SongInfo) -> Result<Option<Vec<LyricLine>>> {
         return Ok(Some(lyrics));
     }
 
-    // // Fetch lyrics from online sources
-    // if let Some(lyrics) = try_fetch_lyrics(lyrics_dir_path, song).await? {
-    //     return Ok(Some(lyrics));
-    // }
+
 
     // No lyrics found
     Ok(None)
@@ -156,19 +153,3 @@ fn try_fuzzy_match(lyrics_dir_path: &Path, song: &SongInfo) -> Result<Option<Vec
 
     Ok(None)
 }
-
-// async fn try_fetch_lyrics(
-//     lyrics_dir_path: &Path,
-//     song: &SongInfo,
-// ) -> Result<Option<Vec<LyricLine>>> {
-//     // Fetch lyrics from Genius API
-//     if let Some(lyrics) = fetch_lyrics(song).await? {
-//         let lyrics_path = lyrics_dir_path.join(format!("{}.lrc", song.id));
-//         fs::write(&lyrics_path, &lyrics)?;
-//         return Ok(Some(parse_lyrics(&lyrics)));
-//     }
-
-//     // TODO: Add more methods for fetching lyrics here
-
-//     Ok(None)
-// }
