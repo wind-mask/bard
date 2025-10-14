@@ -21,3 +21,4 @@ reqwest = { version = "0.12.15", features = ["json"] }
 # For lyrics manipulation
 regex = "1.5"
 lofty = "0.22.2"
+mpris = "2.0.1"

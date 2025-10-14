@@ -99,37 +99,30 @@ fn update_lyrics(lyrics_result: &Result<Option<Vec<LyricLine>>>, song: &SongInfo
             let current_lyric = get_lyrics_status(lyrics_data, song.position);
 
             // 构建增强的tooltip，包含翻译
-            // let mut tooltip = format_lyrics_for_tooltip(lyrics_data);
             let tooltip = String::new();
-            // if let Some(translation) = &current_lyric.translation {
-            //     tooltip = format!("{}\n\n当前翻译: {}", tooltip, translation);
-            // }
 
             // 渲染歌词，如果有翻译就显示翻译
-            let display_current = current_lyric.current_line;
-            let next_line = if current_lyric.translation.is_some() {
-                current_lyric.translation.unwrap()
+            let display_current_lyric = current_lyric.current_line.text;
+            let next_line = if current_lyric.current_line.translation.is_some() {
+                current_lyric.current_line.translation.clone().unwrap()
             } else {
                 current_lyric.next_line.clone()
             };
-            waybar::render_lyrics(display_current.text, next_line, tooltip);
-
+            // println!(
+            //     "Current lyric time: {:.2}, next lyric time: {:?}, song position: {:.2}",
+            //     current_lyric.current_line.timestamp, current_lyric.next_timestamp, song.position
+            // );
+            waybar::render_lyrics(&display_current_lyric, next_line, tooltip);
             // Calculate sleep duration based on next lyric timestamp or word timing
             let sleep_duration = if let Some(next_timestamp) = current_lyric.next_timestamp {
                 let time_until_next = next_timestamp - song.position;
                 if time_until_next > 0.0 {
-                    // 对于逐字歌词，使用更短的更新间隔
-                    time_until_next.max(0.01).min(2.0)
+                    time_until_next.clamp(0.01, 1.0)
                 } else {
                     0.1
                 }
             } else {
-                // 对于逐字歌词，使用更频繁的更新
-                // if !lyrics_data.is_empty() && !lyrics_data[0].words.is_empty() {
-                // 0.2 // 200ms更新一次以支持逐字高亮
-                // } else {
-                2.0
-                // }
+                0.2
             };
 
             thread::sleep(Duration::from_secs_f64(sleep_duration));

@@ -48,13 +48,13 @@ pub fn render_song_info(song_info: &SongInfo) {
     println!("{}", serde_json::to_string(&output).unwrap());
 }
 
-pub fn render_lyrics(current_lyric_line: String, next_lyric_line: String, tooltip: String) {
+pub fn render_lyrics(current_lyric_line: &str, next_lyric_line: String, tooltip: String) {
     let output = get_lyrics_output(current_lyric_line, next_lyric_line, tooltip);
     println!("{}", serde_json::to_string(&output).unwrap());
 }
 
 fn get_lyrics_output(
-    current_lyric_line: String,
+    current_lyric_line: &str,
     next_lyric_line: String,
     tooltip: String,
 ) -> WaybarOutput {
@@ -67,7 +67,7 @@ fn get_lyrics_output(
         };
     }
     WaybarOutput {
-        text: current_lyric_line,
+        text: current_lyric_line.to_owned(),
         alt: next_lyric_line,
         tooltip,
         class: "has-lyrics".to_string(),

@@ -1,21 +1,20 @@
+use std::fmt::Display;
+
 #[derive(Debug, Clone)]
 pub struct LyricLine {
     pub timestamp: f64,
     pub text: String,
-    // pub words: Vec<WordTimestamp>,
     pub translation: Option<String>,
 }
 
-pub struct WordTimestamp {
-    pub start_time: f64,
-    pub end_time: f64,
-    pub text: String,
-}
-
+#[derive(Debug, Clone)]
 pub struct LyricsStatus {
     pub current_line: LyricLine,
     pub next_line: String,
     pub next_timestamp: Option<f64>,
-    // pub current_word_index: Option<usize>,
-    pub translation: Option<String>,
+}
+impl Display for LyricLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{:.2}] {}", self.timestamp, self.text)
+    }
 }
