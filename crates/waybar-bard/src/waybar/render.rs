@@ -15,6 +15,7 @@ pub fn render_no_song() {
     println!("{}", serde_json::to_string(&output).unwrap());
 }
 
+#[allow(unused)]
 /// empty but show
 pub fn render_just() {
     // Output nothing (hidden state)
@@ -26,6 +27,7 @@ pub fn render_just() {
     };
     println!("{}", serde_json::to_string(&output).unwrap());
 }
+/// hidden
 pub fn render_empty() {
     // Output nothing (hidden state)
     let output = WaybarOutput {
@@ -37,6 +39,7 @@ pub fn render_empty() {
     println!("{}", serde_json::to_string(&output).unwrap());
 }
 
+/// Render song info
 pub fn render_song_info(song_info: &SongInfo) {
     let parsed_text = format!("{} - {}", song_info.artist, song_info.title);
     let output = WaybarOutput {
@@ -48,6 +51,7 @@ pub fn render_song_info(song_info: &SongInfo) {
     println!("{}", serde_json::to_string(&output).unwrap());
 }
 
+/// Render lyrics line
 pub fn render_lyrics(current_lyric_line: &str, next_lyric_line: String, tooltip: String) {
     let output = get_lyrics_output(current_lyric_line, next_lyric_line, tooltip);
     println!("{}", serde_json::to_string(&output).unwrap());

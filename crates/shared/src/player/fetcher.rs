@@ -76,5 +76,4 @@ pub fn get_current_song() -> Result<Option<SongInfo>> {
             }
         }
     }
-    
 }
