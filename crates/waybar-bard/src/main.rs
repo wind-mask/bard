@@ -1,6 +1,5 @@
 use anyhow::Result;
-use shared::config::Config;
-use shared::lyrics::{format_lyrics_for_tooltip, get_lyrics, get_lyrics_status};
+use shared::lyrics::{get_lyrics, get_lyrics_status};
 use shared::models::{LyricLine, SongInfo, SongStatus};
 use shared::player;
 use signal_hook::{consts::SIGUSR1, iterator::Signals};

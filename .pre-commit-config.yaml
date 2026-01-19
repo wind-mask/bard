@@ -1,0 +1,23 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0 # Use the ref you want to point at
+    hooks:
+      - id: check-added-large-files
+      - id: trailing-whitespace
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: check-vcs-permalinks
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.9.1 # Replace with latest tag
+    hooks:
+      - id: commitizen
+      - id: commitizen-branch
+        stages: [pre-push] # -   id: ...
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks

@@ -1,184 +1,81 @@
-# B.A.R.D - Ballad Assistant Rhythm Debugger
+# B.A.R.D
 
-A Rust based lyrics display for music player to show synchronized lyrics.
+**Ballad Assistant Rhythm Debugger** - 在 Waybar/dms 中显示同步歌词的工具
 
-![BARD Banner](banner.png)
+![banner](banner.png)
 
-## Features
+## [Upstream](https://github.com/puszkarek/bard)
 
-- Displays lyrics in a terminal window
-- Displays current lyrics in [Waybar](https://github.com/Alexays/Waybar) based on song position
-- Reads lyrics from music file tags
-- Fetches lyrics from online sources if not found in file tags
-- Saves lyrics to file for future use
-- Supports multiple music players
-- Supports timestamped lyrics for precise synchronization
-- Automatically scrolls lyrics based on current position in song
-- Tries to guess song artist and title from file name and path
-- Runs in continuous mode to keep lyrics updated
+进行了精简，只使用歌曲文件元数据中的歌词，
+也就是说，只支持播放本地音乐。
 
-## Requirements
+## 功能特性
 
-- playerctl
-- music player daemon
-- Rust (for building)
+- 通过 MPRIS D-Bus 协议与音乐播放器交互
+- 自动从音频文件标签读取歌词
+- 支持 LRC 时间戳格式 `[MM:SS.CC]`
+- 在 Waybar 中实时显示同步歌词
+- 在dms中作为bar插件显示歌词
 
-## Optionals
+## 安装
 
-- Waybar
+### 从源码构建
 
-## Run on terminal
+确保已安装 Rust 工具链：
 
-Just run `bard`
-
-## Run with Waybar
-
-Add the following to your Waybar configuration file (typically `~/.config/waybar/config`):
-
-```
- "custom/lyrics": {
-    "exec": "waybar-bard",
-    "format": "{} <span font='11' fgalpha='50%' style='italic'>{alt}</span>",
-    "restart-interval": 5,
-    "return-type": "json",
-    "signal": 1,  // SIGRTMIN+1
-    "tooltip": true
-}
+```bash
+# 克隆仓库
+git clone https://github.com/wind-mask/bard.git
+cd bard
+# 构建 release 版本
+just build-waybar-bard
+# 或
+cargo build --release
 ```
 
-Then add styling in your Waybar CSS file:
+## Waybar 集成
 
-```
-#custom-lyrics {
-    padding: 0 10px;
-    color: #ffffff;
-}
+在 Waybar 配置中添加自定义模块：
 
-#custom-lyrics.no-song {
-    color: #888888;
-}
-
-#custom-lyrics.no-lyrics {
-    color: #aaaaaa;
-    font-style: italic;
-}
-
-#custom-lyrics.has-lyrics {
-    color: #ffffff;
-}
-```
-
-## Installing
-
-Clone this repository:
-
-```
-git clone https://github.com/puszkarek/bard
-```
-
-Install the program:
-
-```
-cd bard && sudo make install
-```
-
-## Timestamped Lyrics Format
-
-For best synchronization, use lyrics with timestamps in the format:
-
-```
-[MM:SS.CC] Lyrics line
-```
-
-Example:
-
-```
-[00:12.34] This is the first line
-[00:15.67] This is the second line
-```
-
-## Configuration
-
-The application uses a JSON configuration file located at `~/.config/bard/config.json`. The file is automatically created with default values on first run.
-
-### Configuration File Location
-
-The config file is stored at:
-
-```
-~/.config/bard/config.json
-```
-
-### Configuration Options
-
-The configuration file contains the following options:
-
-| Option            | Description                                                               | Default    |
-| ----------------- | ------------------------------------------------------------------------- | ---------- |
-| `tidal`           | Tidal authentication configuration                                        | Optional   |
-| `lyrics_folder`   | Directory where lyrics files are stored                                   | `~/lyrics` |
-| `colors`          | Terminal UI color configuration                                           | See below  |
-| `allowed_players` | List of players to include (if set, only these players will be monitored) | Optional   |
-| `ignore_players`  | List of players to ignore (if set, these players will be excluded)        | Optional   |
-
-#### Tidal Configuration (Optional)
-
-The `tidal` section contains the following options:
-
-| Option          | Description                  | Default                            |
-| --------------- | ---------------------------- | ---------------------------------- |
-| `access_token`  | Your Tidal API access token  | Empty string (must be set by user) |
-| `refresh_token` | Your Tidal API refresh token | Empty string (must be set by user) |
-
-#### Color Configuration
-
-The `colors` section contains the following options:
-
-| Option       | Description                                      | Default   |
-| ------------ | ------------------------------------------------ | --------- |
-| `default_fg` | Default text color for non-focused elements      | `"gray"`  |
-| `focused_fg` | Text color for currently active/focused elements | `"white"` |
-
-### Example Configuration
-
-```json
+**~/.config/waybar/config.jsonc**
+```jsonc
 {
-  "tidal": {
-    "access_token": "your-tidal-access-token-here",
-    "refresh_token": "your-tidal-refresh-token-here"
-  },
-  "lyrics_folder": "/home/user/lyrics",
-  "colors": {
-    "default_fg": "gray",
-    "focused_fg": "white"
-  },
-  "allowed_players": ["spotify", "vlc"],
-  "ignore_players": ["firefox", "chromium"]
+  "custom/bard": {
+    "exec": "/path/to/waybar-bard",
+    "format": "{}\n <span font='11' fgalpha='50%' style='italic'>{alt}</span>",
+    "return-type": "json",
+    "restart-interval": 5,
+    "signal": 1,
+    "tooltip": true,
+    "hide-empty-text":true
+  }
 }
 ```
 
-**Note:** The `tidal` section is optional. If you don't want to use Tidal lyrics, you can omit it entirely.
+**~/.config/waybar/style.css**
+```css
+#custom-bard {
+  background-color: @surface_container;
+  color: @on_surface_variant;
+}
+```
+## dms集成
+确保`waybar-bard`可执行文件在路径中，并将`dms-bard`放入dms plugin文件夹中。
 
-## Supported Online Sources
+## 开发
 
-#### Tidal
+```bash
+# 检查代码
+just check
 
-To get your Tidal API tokens:
+# 格式化
+just fmt
 
-1. Log in to Tidal in your browser and open the developer console
-2. Go to the Network tab
-3. Search for "tidal" or "auth.tidal.com"
-4. Find a request to `https://auth.tidal.com/v1/oauth2/token` that contains both `access_token` and `refresh_token`
-5. Copy both tokens and paste them into the config file at `~/.config/bard/config.json`
+# Lint
+just clippy
 
-**Note:** The application will automatically refresh your access token using the refresh token when needed, so you don't need to manually update the access token.
+```
 
-#### TODO: Spotify
+## 许可证
 
-## License
-
-MIT
-
-### Roadmap
-
-- [ ] Add loading indicator when fetching lyrics
+MIT License

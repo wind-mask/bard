@@ -1,0 +1,16 @@
+{
+  "id": "dms-bard",
+  "name": "dms-bard",
+  "description": "显示歌词",
+  "version": "1.0.0",
+  "author": "wind_mask",
+  "icon": "widgets",
+  "type": "widget",
+  "component": "./MyWidget.qml",
+  "settings": "./MySettings.qml",
+  "permissions": [
+    "settings_read",
+    "settings_write",
+    "process"
+  ]
+}
