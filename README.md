@@ -1,6 +1,4 @@
-# B.A.R.D
-
-**Ballad Assistant Rhythm Debugger** - 在 Waybar/dms 中显示同步歌词的工具
+# **~/.config/waybar/config.jsonc** - 在 Waybar/dms 中显示同步歌词的工具
 
 ![banner](banner.png)
 
@@ -15,7 +13,7 @@
 - 自动从音频文件标签读取歌词
 - 支持 LRC 时间戳格式 `[MM:SS.CC]`
 - 在 Waybar 中实时显示同步歌词
-- 在dms中作为bar插件显示歌词
+- 在dms中作为桌面部件显示歌词
 
 ## 安装
 
@@ -37,7 +35,8 @@ cargo build --release
 
 在 Waybar 配置中添加自定义模块：
 
-**~/.config/waybar/config.jsonc**
+'~/.config/waybar/config.jsonc'
+
 ```jsonc
 {
   "custom/bard": {
@@ -52,15 +51,19 @@ cargo build --release
 }
 ```
 
-**~/.config/waybar/style.css**
+'~/.config/waybar/style.css**'
+
 ```css
 #custom-bard {
   background-color: @surface_container;
   color: @on_surface_variant;
 }
 ```
+
 ## dms集成
+
 确保`waybar-bard`可执行文件在路径中，并将`dms-bard`放入dms plugin文件夹中。
+之后添加桌面歌词的桌面部件即可。
 
 ## 开发
 

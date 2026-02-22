@@ -1,16 +1,16 @@
 {
-  "id": "dms-bard",
-  "name": "dms-bard",
-  "description": "显示歌词",
-  "version": "1.0.0",
-  "author": "wind_mask",
-  "icon": "widgets",
-  "type": "widget",
-  "component": "./MyWidget.qml",
-  "settings": "./MySettings.qml",
-  "permissions": [
-    "settings_read",
-    "settings_write",
-    "process"
-  ]
+    "id": "dmsBard",
+    "name": "Desktop Lyrics",
+    "description": "A desktop lyrics widget that displays real-time synchronized lyrics using waybar-bard",
+    "version": "1.0.0",
+    "author": "wind_mask",
+    "type": "desktop",
+    "capabilities": ["desktop-widget", "lyrics", "mpris"],
+    "component": "./DesktopLyrics.qml",
+    "icon": "lyrics",
+    "settings": "./DesktopLyricsSettings.qml",
+    "permissions": [
+        "settings_read",
+        "settings_write"
+    ]
 }
