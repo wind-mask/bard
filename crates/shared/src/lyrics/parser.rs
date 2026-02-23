@@ -70,6 +70,40 @@ pub fn parse_lyrics(lyrics_text: &str) -> Vec<LyricLine> {
 
     // 按时间戳排序
     lines.sort_by(|a, b| a.timestamp.partial_cmp(&b.timestamp).unwrap());
+    // 对没有翻译的行查找有无时间戳相同的翻译行
+    // 先出现的作为原文，后出现的作为翻译，已匹配的不再重复寻找
+    let mut used_as_translation = vec![false; lines.len()];
+    let mut updates: Vec<(usize, usize)> = Vec::new(); // (原文索引, 翻译索引)
+
+    for i in 0..lines.len() {
+        if lines[i].translation.is_some() || used_as_translation[i] {
+            continue;
+        }
+        for j in (i + 1)..lines.len() {
+            if used_as_translation[j] || lines[j].translation.is_some() {
+                continue;
+            }
+            if (lines[j].timestamp - lines[i].timestamp).abs() < 0.01
+                && lines[j].text != lines[i].text
+            {
+                updates.push((i, j));
+                used_as_translation[j] = true;
+                break;
+            }
+        }
+    }
+
+    // 应用更新：将后出现的行文本设为翻译
+    for &(orig, trans) in &updates {
+        lines[orig].translation = Some(lines[trans].text.clone());
+    }
+    // 删除掉作为翻译的行（从后往前删以保持索引正确）
+    let mut remove_indices: Vec<usize> = updates.iter().map(|&(_, t)| t).collect();
+    remove_indices.sort_unstable_by(|a, b| b.cmp(a));
+    for idx in remove_indices {
+        lines.remove(idx);
+    }
+    
     lines
 }
 

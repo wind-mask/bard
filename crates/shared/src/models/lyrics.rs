@@ -15,6 +15,12 @@ pub struct LyricsStatus {
 }
 impl Display for LyricLine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{:.2}] {}", self.timestamp, self.text)
+        write!(
+            f,
+            "[{:.2}] {} {}",
+            self.timestamp,
+            self.text,
+            self.translation.as_ref().map_or("", |v| v)
+        )
     }
 }
