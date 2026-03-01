@@ -20,6 +20,11 @@ DesktopPluginComponent {
     property bool showBackground: pluginData.showBackground ?? true
     property string alignment: pluginData.alignment ?? "center"
 
+    opacity: (lyricData.class === "no-song" || !lyricData.text) ? 0 : 1
+    Behavior on opacity {
+        NumberAnimation { duration: 300; easing.type: Easing.InOutQuad }
+    }
+
     property var lyricData: ({
             "text": "",
             "alt": "",
