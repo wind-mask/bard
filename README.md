@@ -1,4 +1,4 @@
-# **~/.config/waybar/config.jsonc** - 在 Waybar/dms 中显示同步歌词的工具
+# - 在 Waybar/dms 中显示同步歌词的工具
 
 ![banner](banner.png)
 
