@@ -117,7 +117,8 @@ fn main() -> Result<()> {
             match &reader.song {
                 Some(song) => {
                     if song.status == SongStatus::Paused {
-                        waybar::render_song_info(song);
+                        // waybar::render_song_info(song);
+                        waybar::render_no_song();
                         sleep_duration = Duration::from_millis(500);
                     } else {
                         // Interpolate position: DBus Position + Time since DBus update
