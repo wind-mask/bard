@@ -122,6 +122,28 @@ pub fn find_active_player() -> Result<Option<Player>> {
     }
 }
 
+/// 查找一个真正处于播放状态的播放器。暂停播放器只会由已选中的 watcher 继续保持。
+pub fn find_playing_player() -> Result<Option<Player>> {
+    let player_finder = PlayerFinder::new().context("Could not connect to D-Bus")?;
+    let players = player_finder
+        .iter_players()
+        .context("Could not enumerate MPRIS players")?;
+
+    for candidate in players {
+        let Ok(player) = candidate else {
+            continue;
+        };
+        if matches!(
+            player.get_playback_status(),
+            Ok(mpris::PlaybackStatus::Playing)
+        ) {
+            return Ok(Some(player));
+        }
+    }
+
+    Ok(None)
+}
+
 pub fn get_current_song() -> Result<Option<SongInfo>> {
     find_active_player()?
         .map(|player| song_from_player(&player))

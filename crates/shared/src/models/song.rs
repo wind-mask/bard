@@ -1,6 +1,6 @@
 use compact_str::CompactString;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SongStatus {
     Paused,
     Playing,
