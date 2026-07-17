@@ -17,7 +17,7 @@ PluginSettings {
 
     SliderSetting {
         settingKey: "altFontSize"
-        label: I18n.tr("Translation Font Size")
+        label: I18n.tr("Auxiliary Lyric Font Size")
         defaultValue: 16
         minimum: 10
         maximum: 36
@@ -26,8 +26,8 @@ PluginSettings {
 
     ToggleSetting {
         settingKey: "showAlt"
-        label: I18n.tr("Show Translation")
-        description: I18n.tr("Display translated lyrics below the main lyrics")
+        label: I18n.tr("Show Auxiliary Lyric")
+        description: I18n.tr("Show the translation, or the next lyric when no translation exists")
         defaultValue: true
     }
 

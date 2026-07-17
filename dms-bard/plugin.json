@@ -2,7 +2,7 @@
     "id": "dmsBard",
     "name": "Desktop Lyrics",
     "description": "A desktop lyrics widget that displays real-time synchronized lyrics using waybar-bard",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "author": "wind_mask",
     "type": "desktop",
     "capabilities": ["desktop-widget", "lyrics", "mpris"],

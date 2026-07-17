@@ -216,10 +216,10 @@ impl Coordinator {
             return (RenderedFrame::Hidden, None);
         }
         let (Some(song), Some(clock)) = (&self.state.song, &self.state.clock) else {
-            return (RenderedFrame::NoSong, None);
+            return (RenderedFrame::NoPlayer, None);
         };
         if clock.status() != SongStatus::Playing {
-            return (RenderedFrame::NoSong, None);
+            return (RenderedFrame::Paused, None);
         }
 
         let current_position = clock.position_at(now);
@@ -230,7 +230,7 @@ impl Coordinator {
                     .current_line
                     .map(|line| line.text.as_str())
                     .unwrap_or("");
-                let next = status
+                let alt = status
                     .current_line
                     .and_then(|line| line.translation.as_deref())
                     .or_else(|| status.next_line.map(|line| line.text.as_str()))
@@ -238,13 +238,13 @@ impl Coordinator {
                 (
                     RenderedFrame::Lyrics {
                         current: current.to_compact_string(),
-                        next: next.to_compact_string(),
+                        alt: alt.to_compact_string(),
                     },
                     next_lyric_timeout(status.next_timestamp, current_position),
                 )
             }
             None => (
-                RenderedFrame::SongInfo {
+                RenderedFrame::NoLyrics {
                     artist: song.artist.clone(),
                     title: song.title.clone(),
                 },
@@ -324,6 +324,7 @@ mod tests {
         assert_eq!(clock.status(), SongStatus::Paused);
         let now = Instant::now() + Duration::from_secs(30);
         assert_eq!(clock.position_at(now), Duration::from_secs(12));
+        assert_eq!(coordinator.frame_at(now).0, RenderedFrame::Paused);
 
         coordinator.apply_event(snapshot(1, SongStatus::Playing, 12.0));
         assert_eq!(
@@ -353,7 +354,7 @@ mod tests {
             before,
             RenderedFrame::Lyrics {
                 current: "".to_compact_string(),
-                next: "first".to_compact_string(),
+                alt: "first".to_compact_string(),
             }
         );
         assert_eq!(timeout, Some(Duration::from_millis(100)));
@@ -363,7 +364,7 @@ mod tests {
             at_boundary,
             RenderedFrame::Lyrics {
                 current: "first".to_compact_string(),
-                next: "".to_compact_string(),
+                alt: "".to_compact_string(),
             }
         );
     }
@@ -425,7 +426,7 @@ mod tests {
         coordinator.apply_event(snapshot(1, SongStatus::Stopped, 1.0));
         assert!(matches!(
             coordinator.frame_at(Instant::now()).0,
-            RenderedFrame::NoSong
+            RenderedFrame::NoPlayer
         ));
 
         coordinator.apply_event(snapshot(2, SongStatus::Playing, 1.0));
@@ -441,7 +442,7 @@ mod tests {
         });
         assert!(matches!(
             coordinator.frame_at(Instant::now()).0,
-            RenderedFrame::NoSong
+            RenderedFrame::NoPlayer
         ));
     }
 

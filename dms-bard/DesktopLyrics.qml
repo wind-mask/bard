@@ -19,8 +19,14 @@ DesktopPluginComponent {
     property bool showAlt: pluginData.showAlt ?? true
     property bool showBackground: pluginData.showBackground ?? true
     property string alignment: pluginData.alignment ?? "center"
+    property int restartDelay: 1000
+    readonly property int maxRestartDelay: 30000
+    property bool shuttingDown: false
 
-    opacity: (lyricData.class === "no-song" || !lyricData.text) ? 0 : 1
+    opacity: (lyricData.class === "hidden"
+        || lyricData.class === "no-player"
+        || lyricData.class === "paused"
+        || !lyricData.text) ? 0 : 1
     Behavior on opacity {
         NumberAnimation { duration: 300; easing.type: Easing.InOutQuad }
     }
@@ -28,7 +34,7 @@ DesktopPluginComponent {
     property var lyricData: ({
             "text": "",
             "alt": "",
-            "class": "no-song"
+            "class": "no-player"
         })
 
     property int horizontalAlign: {
@@ -59,15 +65,40 @@ DesktopPluginComponent {
             }
         }
 
+        onRunningChanged: {
+            if (running)
+                stableRunTimer.restart();
+        }
+
         onExited: (exitCode, exitStatus) => {
-            restartTimer.start();
+            stableRunTimer.stop();
+            if (!root.shuttingDown && (exitCode !== 0 || exitStatus !== 0)) {
+                restartTimer.interval = root.restartDelay;
+                restartTimer.restart();
+                root.restartDelay = Math.min(root.restartDelay * 2, root.maxRestartDelay);
+            }
         }
     }
 
     Timer {
         id: restartTimer
-        interval: 1000
+        interval: root.restartDelay
+        repeat: false
         onTriggered: lyricProcess.running = true
+    }
+
+    Timer {
+        id: stableRunTimer
+        interval: 30000
+        repeat: false
+        onTriggered: root.restartDelay = 1000
+    }
+
+    Component.onDestruction: {
+        root.shuttingDown = true;
+        restartTimer.stop();
+        stableRunTimer.stop();
+        lyricProcess.running = false;
     }
 
     Rectangle {
@@ -95,7 +126,8 @@ DesktopPluginComponent {
                 id: mainText
                 anchors.fill: parent
                 text: root.lyricData.text || ""
-                color: root.lyricData.class === "no-song" ? Theme.surfaceVariantText : Theme.surfaceText
+                textFormat: Text.PlainText
+                color: root.lyricData.class === "no-lyrics" ? Theme.surfaceVariantText : Theme.surfaceText
                 font.pixelSize: root.fontSize
                 font.weight: Font.DemiBold
                 horizontalAlignment: root.horizontalAlign
@@ -134,6 +166,7 @@ DesktopPluginComponent {
             width: parent.width
             visible: root.showAlt && root.lyricData.alt !== ""
             text: root.lyricData.alt || ""
+            textFormat: Text.PlainText
             color: Theme.withAlpha(Theme.surfaceText, 0.7)
             font.pixelSize: root.altFontSize
             font.weight: Font.Normal
