@@ -3,7 +3,7 @@ name = "shared"
 version = "0.9.0"
 edition = "2024"
 description = "Shared functionality for bard"
-authors = ["wind_mask","Guilherme Puszkarek"]
+authors = ["wind_mask", "Guilherme Puszkarek"]
 license = "MIT"
 
 [dependencies]
@@ -11,4 +11,7 @@ anyhow = "1.0"
 # For lyrics manipulation
 regex = "1.5"
 lofty = "0.22.2"
-mpris = "2.0.1"
+mpris = "2.1.0"
+zbus = "5.16.0"
+compact_str = "0.9.1"
+url = "2.5"

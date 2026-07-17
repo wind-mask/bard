@@ -7,10 +7,10 @@ pub struct LyricLine {
     pub translation: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct LyricsStatus {
-    pub current_line: LyricLine,
-    pub next_line: String,
+#[derive(Debug, Clone, Copy)]
+pub struct LyricsStatus<'a> {
+    pub current_line: Option<&'a LyricLine>,
+    pub next_line: Option<&'a LyricLine>,
     pub next_timestamp: Option<f64>,
 }
 impl Display for LyricLine {

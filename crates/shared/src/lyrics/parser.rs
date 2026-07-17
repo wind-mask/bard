@@ -1,117 +1,171 @@
-use crate::models::lyrics::LyricLine;
+use std::sync::LazyLock;
+
 use regex::Regex;
 
+use crate::models::lyrics::LyricLine;
+
+const TIMESTAMP_EPSILON: f64 = 1e-9;
+
+static LINE_TIMESTAMP_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\[(\d+):(\d+)(?:\.(\d+))?\](.*)$").expect("歌词行时间戳正则应有效")
+});
+static WORD_TIMESTAMP_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<\d+:\d+(?:\.\d+)?>").expect("逐词时间戳正则应有效"));
+
+struct ParsedLine {
+    lyric: LyricLine,
+    has_timestamp: bool,
+}
+
 pub fn parse_lyrics(lyrics_text: &str) -> Vec<LyricLine> {
-    let mut lines = Vec::new();
-    let lines_vec: Vec<&str> = lyrics_text.lines().collect();
+    let mut lines = lyrics_text
+        .lines()
+        .filter_map(parse_line)
+        .collect::<Vec<_>>();
 
-    // 正则表达式匹配时间戳行，例如 [01:23.456]歌词内容
-    let timestamp_regex = Regex::new(r"\[(\d+):(\d+)\.(\d+)\](.*)").unwrap();
+    lines.sort_by(|a, b| a.lyric.timestamp.total_cmp(&b.lyric.timestamp));
 
-    let mut i = 0;
-    while i < lines_vec.len() {
-        let line = lines_vec[i];
-
-        if let Some(caps) = timestamp_regex.captures(line) {
-            let minutes: f64 = caps.get(1).unwrap().as_str().parse().unwrap_or(0.0);
-            let seconds: f64 = caps.get(2).unwrap().as_str().parse().unwrap_or(0.0);
-            let centiseconds: f64 = caps.get(3).unwrap().as_str().parse().unwrap_or(0.0);
-            let content = caps.get(4).unwrap().as_str();
-
-            let timestamp = minutes * 60.0 + seconds + centiseconds / 1000.0;
-
-            // 获取纯文本（去掉时间戳标记）
-            let clean_text = extract_clean_text(content);
-
-            // 检查下一行是否是相同时间戳的翻译
-            let mut translation = None;
-            if i + 1 < lines_vec.len() {
-                let next_line = lines_vec[i + 1];
-                if let Some(next_caps) = timestamp_regex.captures(next_line) {
-                    let next_minutes: f64 =
-                        next_caps.get(1).unwrap().as_str().parse().unwrap_or(0.0);
-                    let next_seconds: f64 =
-                        next_caps.get(2).unwrap().as_str().parse().unwrap_or(0.0);
-                    let next_centiseconds: f64 =
-                        next_caps.get(3).unwrap().as_str().parse().unwrap_or(0.0);
-                    let next_timestamp =
-                        next_minutes * 60.0 + next_seconds + next_centiseconds / 1000.0;
-
-                    // 如果时间戳相同（允许很小的误差），认为是翻译
-                    if (next_timestamp - timestamp).abs() < 0.01 {
-                        let next_content = next_caps.get(4).unwrap().as_str();
-                        let next_clean_text = extract_clean_text(next_content);
-                        if !next_clean_text.is_empty() {
-                            translation = Some(next_clean_text);
-                            i += 1; // 跳过翻译行
-                        }
-                    }
-                }
-            }
-
-            if !clean_text.is_empty() {
-                lines.push(LyricLine {
-                    timestamp,
-                    text: clean_text,
-                    translation,
-                });
-            }
-        } else if !line.trim().is_empty() && !line.starts_with('[') {
-            // 对于非时间戳行（可能是纯文本歌词或翻译），如果不是翻译就添加
-            lines.push(LyricLine {
-                timestamp: 0.0,
-                text: line.trim().to_string(),
-                translation: None,
-            });
-        }
-
-        i += 1;
-    }
-
-    // 按时间戳排序
-    lines.sort_by(|a, b| a.timestamp.partial_cmp(&b.timestamp).unwrap());
-    // 对没有翻译的行查找有无时间戳相同的翻译行
-    // 先出现的作为原文，后出现的作为翻译，已匹配的不再重复寻找
-    let mut used_as_translation = vec![false; lines.len()];
-    let mut updates: Vec<(usize, usize)> = Vec::new(); // (原文索引, 翻译索引)
-
-    for i in 0..lines.len() {
-        if lines[i].translation.is_some() || used_as_translation[i] {
+    let mut merged: Vec<ParsedLine> = Vec::with_capacity(lines.len());
+    for line in lines {
+        if line.has_timestamp
+            && let Some(previous) = merged.last_mut()
+            && previous.has_timestamp
+            && previous.lyric.translation.is_none()
+            && (previous.lyric.timestamp - line.lyric.timestamp).abs() < TIMESTAMP_EPSILON
+            && previous.lyric.text != line.lyric.text
+        {
+            previous.lyric.translation = Some(line.lyric.text);
             continue;
         }
-        for j in (i + 1)..lines.len() {
-            if used_as_translation[j] || lines[j].translation.is_some() {
-                continue;
-            }
-            if (lines[j].timestamp - lines[i].timestamp).abs() < 0.01
-                && lines[j].text != lines[i].text
-            {
-                updates.push((i, j));
-                used_as_translation[j] = true;
-                break;
-            }
-        }
+
+        merged.push(line);
     }
 
-    // 应用更新：将后出现的行文本设为翻译
-    for &(orig, trans) in &updates {
-        lines[orig].translation = Some(lines[trans].text.clone());
+    merged.into_iter().map(|line| line.lyric).collect()
+}
+
+fn parse_line(line: &str) -> Option<ParsedLine> {
+    if let Some(captures) = LINE_TIMESTAMP_REGEX.captures(line) {
+        let timestamp = parse_timestamp(
+            captures.get(1)?.as_str(),
+            captures.get(2)?.as_str(),
+            captures.get(3).map(|fraction| fraction.as_str()),
+        )?;
+        let text = extract_clean_text(captures.get(4)?.as_str());
+        if text.is_empty() {
+            return None;
+        }
+
+        return Some(ParsedLine {
+            lyric: LyricLine {
+                timestamp,
+                text,
+                translation: None,
+            },
+            has_timestamp: true,
+        });
     }
-    // 删除掉作为翻译的行（从后往前删以保持索引正确）
-    let mut remove_indices: Vec<usize> = updates.iter().map(|&(_, t)| t).collect();
-    remove_indices.sort_unstable_by(|a, b| b.cmp(a));
-    for idx in remove_indices {
-        lines.remove(idx);
+
+    let text = line.trim();
+    if text.is_empty() || text.starts_with('[') {
+        return None;
     }
-    
-    lines
+
+    Some(ParsedLine {
+        lyric: LyricLine {
+            timestamp: 0.0,
+            text: text.to_string(),
+            translation: None,
+        },
+        has_timestamp: false,
+    })
+}
+
+fn parse_timestamp(minutes: &str, seconds: &str, fraction: Option<&str>) -> Option<f64> {
+    let minutes = minutes.parse::<u64>().ok()?;
+    let seconds = seconds.parse::<u64>().ok()?;
+    let fraction = match fraction {
+        Some(fraction) => {
+            let value = fraction.parse::<u64>().ok()?;
+            let scale = 10_u64.checked_pow(fraction.len().try_into().ok()?)?;
+            value as f64 / scale as f64
+        }
+        None => 0.0,
+    };
+
+    Some(minutes as f64 * 60.0 + seconds as f64 + fraction)
 }
 
 fn extract_clean_text(content: &str) -> String {
-    // 移除所有时间戳标记，保留纯文本
-    let word_timestamp_regex = Regex::new(r"<\d+:\d+\.\d+>").unwrap();
-    word_timestamp_regex
+    WORD_TIMESTAMP_REGEX
         .replace_all(content, "")
         .trim()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::parse_lyrics;
+
+    fn assert_timestamp(input: &str, expected: f64) {
+        let lyrics = parse_lyrics(input);
+        assert_eq!(lyrics.len(), 1);
+        assert!((lyrics[0].timestamp - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parses_one_two_and_three_digit_fractions() {
+        assert_timestamp("[01:02.1]one", 62.1);
+        assert_timestamp("[01:02.12]two", 62.12);
+        assert_timestamp("[01:02.123]three", 62.123);
+    }
+
+    #[test]
+    fn merges_translation_with_equivalent_fraction_precision() {
+        let lyrics = parse_lyrics("[00:01.1]原文\n[00:01.100]translation");
+
+        assert_eq!(lyrics.len(), 1);
+        assert_eq!(lyrics[0].text, "原文");
+        assert_eq!(lyrics[0].translation.as_deref(), Some("translation"));
+    }
+
+    #[test]
+    fn does_not_merge_distinct_timestamps() {
+        let lyrics = parse_lyrics("[00:01.100]A\n[00:02.100]B");
+
+        assert_eq!(lyrics.len(), 2);
+        assert!(lyrics.iter().all(|line| line.translation.is_none()));
+    }
+
+    #[test]
+    fn preserves_duplicate_text_at_the_same_timestamp() {
+        let lyrics = parse_lyrics("[00:01.100]same\n[00:01.100]same");
+
+        assert_eq!(lyrics.len(), 2);
+        assert!(lyrics.iter().all(|line| line.translation.is_none()));
+    }
+
+    #[test]
+    fn removes_word_timestamps() {
+        let lyrics = parse_lyrics("[00:01.230]<00:01.230>Hel<00:01.500>lo");
+
+        assert_eq!(lyrics[0].text, "Hello");
+        assert!((lyrics[0].timestamp - 1.23).abs() < 1e-9);
+    }
+
+    #[test]
+    fn removes_word_timestamps_with_mixed_precision_and_unicode() {
+        let lyrics = parse_lyrics("[00:01.23]<00:01.2>你<00:01.23>好 <00:01.230>world");
+
+        assert_eq!(lyrics[0].text, "你好 world");
+    }
+
+    #[test]
+    fn plain_text_lines_are_not_merged_as_translations() {
+        let lyrics = parse_lyrics("first\nsecond");
+
+        assert_eq!(lyrics.len(), 2);
+        assert!(lyrics.iter().all(|line| line.translation.is_none()));
+    }
 }

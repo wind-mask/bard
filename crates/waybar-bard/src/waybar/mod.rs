@@ -1,3 +1,4 @@
 mod render;
 
-pub use render::{render_empty, render_lyrics, render_no_song, render_song_info};
+pub use render::RenderedFrame;
+pub use render::render_if_changed;
