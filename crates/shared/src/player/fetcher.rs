@@ -87,7 +87,6 @@ pub fn song_from_player(player: &Player) -> Result<SongInfo> {
         .unwrap_or_else(|| "Unknown Title".to_compact_string());
     let position = player
         .get_position()
-        .map(|duration| duration.as_secs_f64())
         .context("Could not get player position")?;
     let url = metadata_string(&metadata, "xesam:url").and_then(|url| normalize_url(&url));
     let track_id = metadata.track_id();

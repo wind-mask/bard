@@ -37,13 +37,15 @@ struct AppState {
 pub struct Coordinator {
     state: AppState,
     last_frame: Option<RenderedFrame>,
+    display_offset_ms: i64,
 }
 
 impl Coordinator {
-    pub fn new() -> Self {
+    pub fn new(display_offset_ms: i64) -> Self {
         Self {
             state: AppState::default(),
             last_frame: None,
+            display_offset_ms,
         }
     }
 
@@ -139,8 +141,14 @@ impl Coordinator {
             .song
             .as_ref()
             .is_none_or(|current| current.id != song.id || current.url != song.url);
-        let lyrics = reload_lyrics.then(|| get_lyrics(&song));
-        let position = Duration::from_secs_f64(song.position.max(0.0));
+        let lyrics = reload_lyrics.then(|| match get_lyrics(&song) {
+            Ok(lyrics) => lyrics,
+            Err(error) => {
+                eprintln!("waybar-bard: failed to read embedded lyrics: {error}");
+                None
+            }
+        });
+        let position = song.position;
 
         self.state.generation = generation;
         self.state.player = Some(player);
@@ -214,10 +222,10 @@ impl Coordinator {
             return (RenderedFrame::NoSong, None);
         }
 
-        let current_position = clock.position_at(now).as_secs_f64();
+        let current_position = clock.position_at(now);
         match &self.state.lyrics {
             Some(lyrics) => {
-                let status = get_lyrics_status(lyrics, current_position);
+                let status = get_lyrics_status(lyrics, current_position, self.display_offset_ms);
                 let current = status
                     .current_line
                     .map(|line| line.text.as_str())
@@ -246,12 +254,14 @@ impl Coordinator {
     }
 }
 
-fn next_lyric_timeout(next_timestamp: Option<f64>, current_position: f64) -> Option<Duration> {
-    let remaining = next_timestamp? - current_position;
-    Some(if remaining.is_finite() && remaining > 0.0 {
-        Duration::from_secs_f64(remaining.max(0.01))
-    } else {
-        Duration::from_millis(50)
+fn next_lyric_timeout(
+    next_timestamp: Option<Duration>,
+    current_position: Duration,
+) -> Option<Duration> {
+    let remaining = next_timestamp?.checked_sub(current_position);
+    Some(match remaining {
+        Some(remaining) if !remaining.is_zero() => remaining.max(Duration::from_millis(10)),
+        _ => Duration::from_millis(50),
     })
 }
 
@@ -274,7 +284,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use compact_str::ToCompactString;
-    use shared::models::{SongInfo, SongStatus};
+    use shared::models::{LyricLine, SongInfo, SongStatus};
 
     use super::super::event::{AppEvent, SeekSource};
     use super::Coordinator;
@@ -285,7 +295,7 @@ mod tests {
             id: id.to_compact_string(),
             artist: "artist".to_compact_string(),
             title: "title".to_compact_string(),
-            position,
+            position: Duration::from_secs_f64(position),
             status,
             url: None,
         }
@@ -302,7 +312,7 @@ mod tests {
 
     #[test]
     fn playback_clock_follows_snapshot_status() {
-        let mut coordinator = Coordinator::new();
+        let mut coordinator = Coordinator::new(100);
         coordinator.apply_event(snapshot(1, SongStatus::Playing, 10.0));
         assert_eq!(
             coordinator.state.clock.as_ref().unwrap().status(),
@@ -323,8 +333,44 @@ mod tests {
     }
 
     #[test]
+    fn configured_offset_controls_frame_and_deadline() {
+        let start = Instant::now();
+        let mut coordinator = Coordinator::new(100);
+        coordinator.apply_event(AppEvent::PlayerSnapshot {
+            generation: 1,
+            player: ":1.42".to_compact_string(),
+            song: song("track", 0.0, SongStatus::Playing),
+            observed_at: start,
+        });
+        coordinator.state.lyrics = Some(vec![LyricLine {
+            timestamp: Duration::from_secs(1),
+            text: "first".to_string(),
+            translation: None,
+        }]);
+
+        let (before, timeout) = coordinator.frame_at(start + Duration::from_secs(1));
+        assert_eq!(
+            before,
+            RenderedFrame::Lyrics {
+                current: "".to_compact_string(),
+                next: "first".to_compact_string(),
+            }
+        );
+        assert_eq!(timeout, Some(Duration::from_millis(100)));
+
+        let (at_boundary, _) = coordinator.frame_at(start + Duration::from_millis(1_100));
+        assert_eq!(
+            at_boundary,
+            RenderedFrame::Lyrics {
+                current: "first".to_compact_string(),
+                next: "".to_compact_string(),
+            }
+        );
+    }
+
+    #[test]
     fn snapshot_observation_time_compensates_queue_and_io_delay() {
-        let mut coordinator = Coordinator::new();
+        let mut coordinator = Coordinator::new(100);
         let now = Instant::now();
         coordinator.apply_event(AppEvent::PlayerSnapshot {
             generation: 1,
@@ -341,7 +387,7 @@ mod tests {
 
     #[test]
     fn duplicate_seek_and_stale_generation_are_ignored() {
-        let mut coordinator = Coordinator::new();
+        let mut coordinator = Coordinator::new(100);
         coordinator.apply_event(snapshot(3, SongStatus::Playing, 1.0));
         let now = Instant::now();
         coordinator.apply_event(AppEvent::Seeked {
@@ -374,7 +420,7 @@ mod tests {
 
     #[test]
     fn stopped_unavailable_and_toggle_clear_or_hide_state() {
-        let mut coordinator = Coordinator::new();
+        let mut coordinator = Coordinator::new(100);
         coordinator.apply_event(snapshot(1, SongStatus::Playing, 1.0));
         coordinator.apply_event(snapshot(1, SongStatus::Stopped, 1.0));
         assert!(matches!(
@@ -413,7 +459,7 @@ mod tests {
 
     #[test]
     fn broken_pipe_is_a_normal_exit() {
-        let mut coordinator = Coordinator::new();
+        let mut coordinator = Coordinator::new(100);
         let (_tx, rx) = mpsc::channel();
         assert!(coordinator.run(rx, &mut BrokenPipeWriter).is_ok());
     }

@@ -190,7 +190,7 @@ fn watch_selected_player(
             }
             mpris::Event::Seeked { position_in_us } => {
                 let position = Duration::from_micros(position_in_us);
-                last_song.position = position.as_secs_f64();
+                last_song.position = position;
                 last_sync = Instant::now();
                 if events
                     .send(AppEvent::Seeked {
@@ -234,9 +234,9 @@ fn send_snapshot(
         .is_ok()
 }
 
-fn estimated_position(song: &SongInfo, synced_at: Instant) -> f64 {
+fn estimated_position(song: &SongInfo, synced_at: Instant) -> Duration {
     if song.status == SongStatus::Playing {
-        song.position + synced_at.elapsed().as_secs_f64()
+        song.position.saturating_add(synced_at.elapsed())
     } else {
         song.position
     }
@@ -245,18 +245,18 @@ fn estimated_position(song: &SongInfo, synced_at: Instant) -> f64 {
 fn track_snapshot_ready(
     candidate: &SongInfo,
     observed: &SongInfo,
-    old_position: f64,
+    old_position: Duration,
     attempt: usize,
 ) -> bool {
     let identity_stable = observed.id == candidate.id;
-    let position_is_fresh = (observed.position - old_position).abs() >= 0.5;
+    let position_is_fresh = observed.position.abs_diff(old_position) >= Duration::from_millis(500);
     identity_stable && (position_is_fresh || attempt + 1 == POSITION_RETRY_LIMIT)
 }
 
 fn confirm_track_position(
     selected: &mpris::Player,
     mut candidate: SongInfo,
-    old_position: f64,
+    old_position: Duration,
 ) -> Result<SongInfo> {
     let mut delay = POSITION_CONFIRM_DELAY;
     let mut last_error = None;
@@ -373,7 +373,7 @@ mod tests {
             id: id.to_compact_string(),
             artist: "artist".to_compact_string(),
             title: "title".to_compact_string(),
-            position,
+            position: Duration::from_secs_f64(position),
             status,
             url: None,
         }
@@ -384,7 +384,7 @@ mod tests {
         let song = song("track", 12.0, SongStatus::Paused);
         assert_eq!(
             estimated_position(&song, Instant::now() - Duration::from_secs(30)),
-            12.0
+            Duration::from_secs(12)
         );
     }
 
@@ -392,17 +392,32 @@ mod tests {
     fn track_confirmation_requires_stable_identity_and_fresh_position() {
         let candidate = song("new", 87.0, SongStatus::Playing);
         let different = song("other", 0.2, SongStatus::Playing);
-        assert!(!track_snapshot_ready(&candidate, &different, 87.0, 0));
+        assert!(!track_snapshot_ready(
+            &candidate,
+            &different,
+            Duration::from_secs(87),
+            0
+        ));
 
         let fresh = song("new", 0.2, SongStatus::Playing);
-        assert!(track_snapshot_ready(&candidate, &fresh, 87.0, 0));
+        assert!(track_snapshot_ready(
+            &candidate,
+            &fresh,
+            Duration::from_secs(87),
+            0
+        ));
 
         let stale = song("new", 87.1, SongStatus::Playing);
-        assert!(!track_snapshot_ready(&candidate, &stale, 87.0, 0));
+        assert!(!track_snapshot_ready(
+            &candidate,
+            &stale,
+            Duration::from_secs(87),
+            0
+        ));
         assert!(track_snapshot_ready(
             &candidate,
             &stale,
-            87.0,
+            Duration::from_secs(87),
             POSITION_RETRY_LIMIT - 1
         ));
     }

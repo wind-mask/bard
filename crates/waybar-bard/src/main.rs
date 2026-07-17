@@ -7,12 +7,26 @@ use crate::app::{
     Coordinator, spawn_candidate_watchers, spawn_player_manager, spawn_seeked_watcher,
     spawn_signal_watcher,
 };
+use crate::cli::CliAction;
 
 mod app;
+mod cli;
 mod models;
 mod waybar;
 
 fn main() -> Result<()> {
+    let offset_ms = match cli::parse()? {
+        CliAction::Run(config) => config.offset_ms,
+        CliAction::Help => {
+            print!("{}", cli::help());
+            return Ok(());
+        }
+        CliAction::Version => {
+            println!("waybar-bard {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+    };
+
     let (event_tx, event_rx) = mpsc::channel();
     let (rescan_tx, rescan_rx) = mpsc::sync_channel(1);
 
@@ -23,5 +37,5 @@ fn main() -> Result<()> {
 
     let stdout = io::stdout();
     let mut output = BufWriter::new(stdout.lock());
-    Coordinator::new().run(event_rx, &mut output)
+    Coordinator::new(offset_ms).run(event_rx, &mut output)
 }
