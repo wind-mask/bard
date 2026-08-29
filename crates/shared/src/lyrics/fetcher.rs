@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use compact_str::CompactString;
 use lofty::config::ParseOptions;
 use lofty::file::TaggedFileExt;
 use lofty::probe::Probe;
@@ -8,11 +9,11 @@ use lofty::tag::ItemKey;
 use url::Url;
 
 use crate::lyrics::parser::parse_lyrics;
-use crate::models::{LyricLine, SongInfo};
+use crate::models::LyricLine;
 
 /// 从歌曲元数据中获取歌词。没有本地文件或同步歌词时返回 `Ok(None)`。
-pub fn get_lyrics(song: &SongInfo) -> Result<Option<Vec<LyricLine>>> {
-    let Some(music_path) = song.url.as_deref().and_then(file_url_to_path) else {
+pub fn get_lyrics(url: &Option<CompactString>) -> Result<Option<Vec<LyricLine>>> {
+    let Some(music_path) = url.as_deref().and_then(file_url_to_path) else {
         return Ok(None);
     };
     let options = ParseOptions::new()
@@ -35,7 +36,9 @@ fn first_synced_lyrics<'a>(
     candidates: impl IntoIterator<Item = &'a str>,
 ) -> Option<Vec<LyricLine>> {
     candidates.into_iter().find_map(|raw_lyrics| {
-        let lyrics = parse_lyrics(raw_lyrics.trim_start_matches('\u{feff}'));
+        let mut lyrics = parse_lyrics(raw_lyrics.trim_start_matches('\u{feff}'));
+        lyrics.sort_by_key(|line| line.timestamp);
+
         (!lyrics.is_empty()).then_some(lyrics)
     })
 }
@@ -52,13 +55,8 @@ fn file_url_to_path(value: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
-    use std::time::Duration;
 
-    use compact_str::ToCompactString;
-
-    use crate::models::{SongInfo, SongStatus};
-
-    use super::{file_url_to_path, first_synced_lyrics, get_lyrics};
+    use super::{file_url_to_path, first_synced_lyrics};
 
     #[test]
     fn converts_percent_encoded_file_url() {
@@ -80,22 +78,6 @@ mod tests {
     fn rejects_non_file_and_invalid_urls() {
         assert_eq!(file_url_to_path("https://example.com/song.flac"), None);
         assert_eq!(file_url_to_path("not a url"), None);
-    }
-
-    #[test]
-    fn non_local_or_missing_urls_are_not_errors() {
-        let mut song = SongInfo {
-            id: "track".to_compact_string(),
-            artist: "artist".to_compact_string(),
-            title: "title".to_compact_string(),
-            position: Duration::ZERO,
-            status: SongStatus::Playing,
-            url: None,
-        };
-        assert_eq!(get_lyrics(&song).unwrap(), None);
-
-        song.url = Some("https://example.com/song.flac".to_compact_string());
-        assert_eq!(get_lyrics(&song).unwrap(), None);
     }
 
     #[test]

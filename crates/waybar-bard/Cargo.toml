@@ -18,3 +18,5 @@ signal-hook = "0.4"
 mpris = "2.1.0"
 zbus = "5.16.0"
 compact_str = { version = "0.9.1", features = ["serde"] }
+log = "0.4.34"
+env_logger = "0.11.11"

@@ -4,62 +4,89 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use compact_str::{CompactString, ToCompactString};
-use shared::lyrics::{get_lyrics, get_lyrics_status};
-use shared::models::{LyricLine, SongInfo, SongStatus};
+use log::info;
+use shared::lyrics::get_lyrics_status;
+use shared::models::{SongInfo, SongStatus};
 
 use crate::waybar::{RenderedFrame, render_if_changed};
 
-use super::event::{AppEvent, SeekSource};
-use super::playback_clock::PlaybackClock;
+use super::event::AppEvent;
 
-const SEEK_DEDUP_WINDOW: Duration = Duration::from_millis(250);
-const SEEK_POSITION_TOLERANCE: Duration = Duration::from_millis(5);
-
-#[derive(Debug)]
-struct SeekFingerprint {
-    player: CompactString,
-    position: Duration,
-    observed_at: Instant,
-    source: SeekSource,
-}
-
-#[derive(Debug, Default)]
-struct AppState {
-    generation: u64,
-    player: Option<CompactString>,
+pub struct Bard {
     song: Option<SongInfo>,
-    lyrics: Option<Vec<LyricLine>>,
-    clock: Option<PlaybackClock>,
+    player: Option<CompactString>,
+    synced_at: Instant,
     hidden: bool,
-    last_seek: Option<SeekFingerprint>,
-}
-
-pub struct Coordinator {
-    state: AppState,
     last_frame: Option<RenderedFrame>,
     display_offset_ms: i64,
 }
 
-impl Coordinator {
+impl Bard {
     pub fn new(display_offset_ms: i64) -> Self {
         Self {
-            state: AppState::default(),
+            song: None,
+            player: None,
+            synced_at: Instant::now(),
+            hidden: false,
             last_frame: None,
             display_offset_ms,
         }
     }
 
+    fn frame_at(&self, now: Instant) -> (RenderedFrame, Option<Duration>) {
+        if self.hidden {
+            return (RenderedFrame::Hidden, None);
+        }
+        let Some(song) = self.song.as_ref() else {
+            return (RenderedFrame::NoPlayer, None);
+        };
+        if song.status == SongStatus::Stopped {
+            return (RenderedFrame::NoPlayer, None);
+        }
+        if song.status == SongStatus::Paused {
+            return (RenderedFrame::Paused, None);
+        }
+
+        let position = playback_position(song, self.synced_at, now);
+        match song.lyrics.as_ref() {
+            Some(lyrics) => {
+                let status = get_lyrics_status(lyrics, position, self.display_offset_ms);
+                let current = status
+                    .current_line
+                    .map(|line| line.text.as_str())
+                    .unwrap_or("");
+                let alt = status
+                    .current_line
+                    .and_then(|line| line.translation.as_deref())
+                    .or_else(|| status.next_line.map(|line| line.text.as_str()))
+                    .unwrap_or("");
+                (
+                    RenderedFrame::Lyrics {
+                        current: current.to_compact_string(),
+                        alt: alt.to_compact_string(),
+                    },
+                    next_lyric_timeout(status.next_timestamp, position),
+                )
+            }
+            None => (
+                RenderedFrame::NoLyrics {
+                    artist: song.artist.clone(),
+                    title: song.title.clone(),
+                },
+                None,
+            ),
+        }
+    }
+
     pub fn run<W: Write>(&mut self, events: Receiver<AppEvent>, writer: &mut W) -> Result<()> {
         loop {
-            let now = Instant::now();
-            let (frame, timeout) = self.frame_at(now);
+            let (frame, timeout) = self.frame_at(Instant::now());
             if let Err(error) = render_if_changed(writer, &mut self.last_frame, frame) {
                 if is_broken_pipe(&error) {
                     return Ok(());
                 }
                 return Err(error);
             }
-
             let event = match timeout {
                 Some(timeout) => match events.recv_timeout(timeout) {
                     Ok(event) => event,
@@ -78,179 +105,45 @@ impl Coordinator {
     fn apply_event(&mut self, event: AppEvent) {
         match event {
             AppEvent::ToggleHidden => {
-                self.state.hidden = !self.state.hidden;
-                eprintln!("waybar-bard: hidden state changed to {}", self.state.hidden);
+                self.hidden = !self.hidden;
+                info!("waybar-bard: hidden state changed to {}", self.hidden);
             }
-            AppEvent::PlayerSnapshot {
-                generation,
+            AppEvent::ChangeSong {
                 player,
                 song,
                 observed_at,
-            } => self.apply_snapshot(generation, player, song, observed_at),
-            AppEvent::PlayerUnavailable { generation, player } => {
-                if generation == self.state.generation
-                    && self.state.player.as_ref() == Some(&player)
-                {
-                    self.clear_player(generation);
-                }
+            } => {
+                self.player = Some(player);
+                self.synced_at = observed_at;
+                self.song = Some(song);
             }
-            AppEvent::NoActivePlayer { generation } => {
-                if generation >= self.state.generation {
-                    self.clear_player(generation);
-                }
+            AppEvent::PlayerUnavailable {} | AppEvent::NoActivePlayer {} => {
+                self.song = None;
+                self.player = None;
             }
             AppEvent::Seeked {
-                generation,
-                player,
-                position,
-                source,
-                observed_at,
-            } => self.apply_seek(generation, player, position, source, observed_at),
-        }
-    }
-
-    fn apply_snapshot(
-        &mut self,
-        generation: u64,
-        player: CompactString,
-        song: SongInfo,
-        observed_at: Instant,
-    ) {
-        if generation < self.state.generation {
-            return;
-        }
-        if generation == self.state.generation
-            && self
-                .state
-                .player
-                .as_ref()
-                .is_some_and(|current| current != player)
-        {
-            return;
-        }
-        if song.status == SongStatus::Stopped {
-            self.clear_player(generation);
-            return;
-        }
-
-        let same_player =
-            generation == self.state.generation && self.state.player.as_ref() == Some(&player);
-
-        let reload_lyrics = self
-            .state
-            .song
-            .as_ref()
-            .is_none_or(|current| current.id != song.id || current.url != song.url);
-        let lyrics = reload_lyrics.then(|| match get_lyrics(&song) {
-            Ok(lyrics) => lyrics,
-            Err(error) => {
-                eprintln!("waybar-bard: failed to read embedded lyrics: {error}");
-                None
-            }
-        });
-        let position = song.position;
-
-        self.state.generation = generation;
-        self.state.player = Some(player);
-        if same_player {
-            if let Some(clock) = self.state.clock.as_mut() {
-                clock.resync(position, song.status, observed_at);
-            } else {
-                self.state.clock = Some(PlaybackClock::new(position, song.status, observed_at));
-            }
-        } else {
-            self.state.clock = Some(PlaybackClock::new(position, song.status, observed_at));
-        }
-        self.state.song = Some(song);
-        if let Some(lyrics) = lyrics {
-            self.state.lyrics = lyrics;
-        }
-        self.state.last_seek = None;
-    }
-
-    fn apply_seek(
-        &mut self,
-        generation: Option<u64>,
-        player: CompactString,
-        position: Duration,
-        source: SeekSource,
-        observed_at: Instant,
-    ) {
-        if self.state.player.as_ref() != Some(&player)
-            || generation.is_some_and(|value| value != self.state.generation)
-        {
-            return;
-        }
-
-        if self.state.last_seek.as_ref().is_some_and(|previous| {
-            previous.player == player
-                && previous.source != source
-                && previous.position.abs_diff(position) <= SEEK_POSITION_TOLERANCE
-                && observed_at.saturating_duration_since(previous.observed_at) <= SEEK_DEDUP_WINDOW
-        }) {
-            return;
-        }
-
-        if let Some(clock) = self.state.clock.as_mut() {
-            clock.seek(position, observed_at);
-            self.state.last_seek = Some(SeekFingerprint {
                 player,
                 position,
                 observed_at,
-                source,
-            });
-        }
-    }
-
-    fn clear_player(&mut self, generation: u64) {
-        self.state.generation = generation;
-        self.state.player = None;
-        self.state.song = None;
-        self.state.lyrics = None;
-        self.state.clock = None;
-        self.state.last_seek = None;
-    }
-
-    fn frame_at(&self, now: Instant) -> (RenderedFrame, Option<Duration>) {
-        if self.state.hidden {
-            return (RenderedFrame::Hidden, None);
-        }
-        let (Some(song), Some(clock)) = (&self.state.song, &self.state.clock) else {
-            return (RenderedFrame::NoPlayer, None);
-        };
-        if clock.status() != SongStatus::Playing {
-            return (RenderedFrame::Paused, None);
-        }
-
-        let current_position = clock.position_at(now);
-        match &self.state.lyrics {
-            Some(lyrics) => {
-                let status = get_lyrics_status(lyrics, current_position, self.display_offset_ms);
-                let current = status
-                    .current_line
-                    .map(|line| line.text.as_str())
-                    .unwrap_or("");
-                let alt = status
-                    .current_line
-                    .and_then(|line| line.translation.as_deref())
-                    .or_else(|| status.next_line.map(|line| line.text.as_str()))
-                    .unwrap_or("");
-                (
-                    RenderedFrame::Lyrics {
-                        current: current.to_compact_string(),
-                        alt: alt.to_compact_string(),
-                    },
-                    next_lyric_timeout(status.next_timestamp, current_position),
-                )
+            } => {
+                if self.player.as_ref() != Some(&player) {
+                    return;
+                }
+                if let Some(song) = self.song.as_mut() {
+                    song.position = position;
+                    self.synced_at = observed_at;
+                }
             }
-            None => (
-                RenderedFrame::NoLyrics {
-                    artist: song.artist.clone(),
-                    title: song.title.clone(),
-                },
-                None,
-            ),
         }
+    }
+}
+
+fn playback_position(song: &SongInfo, synced_at: Instant, now: Instant) -> Duration {
+    if song.status == SongStatus::Playing {
+        song.position
+            .saturating_add(now.saturating_duration_since(synced_at))
+    } else {
+        song.position
     }
 }
 
@@ -286,70 +179,75 @@ mod tests {
     use compact_str::ToCompactString;
     use shared::models::{LyricLine, SongInfo, SongStatus};
 
-    use super::super::event::{AppEvent, SeekSource};
-    use super::Coordinator;
+    use super::super::event::AppEvent;
+    use super::{Bard, playback_position};
     use crate::waybar::RenderedFrame;
 
-    fn song(id: &str, position: f64, status: SongStatus) -> SongInfo {
+    fn song(id: &str, position: Duration, status: SongStatus) -> SongInfo {
         SongInfo {
             id: id.to_compact_string(),
             artist: "artist".to_compact_string(),
             title: "title".to_compact_string(),
-            position: Duration::from_secs_f64(position),
+            position,
             status,
+            lyrics: None,
             url: None,
         }
     }
 
-    fn snapshot(generation: u64, status: SongStatus, position: f64) -> AppEvent {
-        AppEvent::PlayerSnapshot {
-            generation,
+    fn change_song(song: SongInfo, observed_at: Instant) -> AppEvent {
+        AppEvent::ChangeSong {
             player: ":1.42".to_compact_string(),
-            song: song("track", position, status),
-            observed_at: Instant::now(),
+            song,
+            observed_at,
         }
     }
 
     #[test]
-    fn playback_clock_follows_snapshot_status() {
-        let mut coordinator = Coordinator::new(100);
-        coordinator.apply_event(snapshot(1, SongStatus::Playing, 10.0));
+    fn playing_advances_but_paused_freezes() {
+        let mut bard = Bard::new(0);
+        let start = Instant::now();
+        bard.apply_event(change_song(
+            song("track", Duration::from_secs(10), SongStatus::Playing),
+            start,
+        ));
         assert_eq!(
-            coordinator.state.clock.as_ref().unwrap().status(),
-            SongStatus::Playing
+            playback_position(
+                bard.song.as_ref().unwrap(),
+                bard.synced_at,
+                start + Duration::from_secs(2)
+            ),
+            Duration::from_secs(12)
         );
 
-        coordinator.apply_event(snapshot(1, SongStatus::Paused, 12.0));
-        let clock = coordinator.state.clock.as_ref().unwrap();
-        assert_eq!(clock.status(), SongStatus::Paused);
-        let now = Instant::now() + Duration::from_secs(30);
-        assert_eq!(clock.position_at(now), Duration::from_secs(12));
-        assert_eq!(coordinator.frame_at(now).0, RenderedFrame::Paused);
-
-        coordinator.apply_event(snapshot(1, SongStatus::Playing, 12.0));
+        bard.apply_event(change_song(
+            song("track", Duration::from_secs(12), SongStatus::Paused),
+            start + Duration::from_secs(2),
+        ));
+        assert_eq!(bard.song.as_ref().unwrap().status, SongStatus::Paused);
         assert_eq!(
-            coordinator.state.clock.as_ref().unwrap().status(),
-            SongStatus::Playing
+            bard.frame_at(start + Duration::from_secs(30)).0,
+            RenderedFrame::Paused
+        );
+        assert_eq!(
+            bard.song.as_ref().unwrap().position,
+            Duration::from_secs(12)
         );
     }
 
     #[test]
     fn configured_offset_controls_frame_and_deadline() {
         let start = Instant::now();
-        let mut coordinator = Coordinator::new(100);
-        coordinator.apply_event(AppEvent::PlayerSnapshot {
-            generation: 1,
-            player: ":1.42".to_compact_string(),
-            song: song("track", 0.0, SongStatus::Playing),
-            observed_at: start,
-        });
-        coordinator.state.lyrics = Some(vec![LyricLine {
+        let mut bard = Bard::new(100);
+        let mut playing = song("track", Duration::ZERO, SongStatus::Playing);
+        playing.lyrics = Some(vec![LyricLine {
             timestamp: Duration::from_secs(1),
             text: "first".to_string(),
             translation: None,
         }]);
+        bard.apply_event(change_song(playing, start));
 
-        let (before, timeout) = coordinator.frame_at(start + Duration::from_secs(1));
+        let (before, timeout) = bard.frame_at(start + Duration::from_secs(1));
         assert_eq!(
             before,
             RenderedFrame::Lyrics {
@@ -359,7 +257,7 @@ mod tests {
         );
         assert_eq!(timeout, Some(Duration::from_millis(100)));
 
-        let (at_boundary, _) = coordinator.frame_at(start + Duration::from_millis(1_100));
+        let (at_boundary, _) = bard.frame_at(start + Duration::from_millis(1_100));
         assert_eq!(
             at_boundary,
             RenderedFrame::Lyrics {
@@ -370,80 +268,64 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_observation_time_compensates_queue_and_io_delay() {
-        let mut coordinator = Coordinator::new(100);
+    fn snapshot_observation_time_compensates_queue_delay() {
+        let mut bard = Bard::new(0);
         let now = Instant::now();
-        coordinator.apply_event(AppEvent::PlayerSnapshot {
-            generation: 1,
-            player: ":1.42".to_compact_string(),
-            song: song("track", 10.0, SongStatus::Playing),
-            observed_at: now - Duration::from_secs(2),
-        });
+        bard.apply_event(change_song(
+            song("track", Duration::from_secs(10), SongStatus::Playing),
+            now - Duration::from_secs(2),
+        ));
 
         assert_eq!(
-            coordinator.state.clock.as_ref().unwrap().position_at(now),
+            playback_position(bard.song.as_ref().unwrap(), bard.synced_at, now),
             Duration::from_secs(12)
         );
     }
 
     #[test]
-    fn duplicate_seek_and_stale_generation_are_ignored() {
-        let mut coordinator = Coordinator::new(100);
-        coordinator.apply_event(snapshot(3, SongStatus::Playing, 1.0));
+    fn seek_from_other_player_is_ignored() {
+        let mut bard = Bard::new(0);
         let now = Instant::now();
-        coordinator.apply_event(AppEvent::Seeked {
-            generation: Some(3),
-            player: ":1.42".to_compact_string(),
-            position: Duration::from_secs(20),
-            source: SeekSource::Mpris,
+        bard.apply_event(change_song(
+            song("track", Duration::from_secs(1), SongStatus::Playing),
+            now,
+        ));
+        bard.apply_event(AppEvent::Seeked {
+            player: ":1.99".to_compact_string(),
+            position: Duration::from_secs(99),
             observed_at: now,
         });
-        coordinator.apply_event(AppEvent::Seeked {
-            generation: None,
+        bard.apply_event(AppEvent::Seeked {
             player: ":1.42".to_compact_string(),
-            position: Duration::from_millis(20_002),
-            source: SeekSource::Zbus,
-            observed_at: now + Duration::from_millis(20),
-        });
-        coordinator.apply_event(AppEvent::Seeked {
-            generation: Some(2),
-            player: ":1.42".to_compact_string(),
-            position: Duration::from_secs(99),
-            source: SeekSource::Mpris,
-            observed_at: now + Duration::from_millis(30),
+            position: Duration::from_secs(20),
+            observed_at: now,
         });
 
         assert_eq!(
-            coordinator.state.clock.as_ref().unwrap().position_at(now),
+            playback_position(bard.song.as_ref().unwrap(), bard.synced_at, now),
             Duration::from_secs(20)
         );
     }
 
     #[test]
-    fn stopped_unavailable_and_toggle_clear_or_hide_state() {
-        let mut coordinator = Coordinator::new(100);
-        coordinator.apply_event(snapshot(1, SongStatus::Playing, 1.0));
-        coordinator.apply_event(snapshot(1, SongStatus::Stopped, 1.0));
-        assert!(matches!(
-            coordinator.frame_at(Instant::now()).0,
-            RenderedFrame::NoPlayer
+    fn interrupted_wait_does_not_rewind_position() {
+        let mut bard = Bard::new(0);
+        let start = Instant::now();
+        bard.apply_event(change_song(
+            song("track", Duration::from_secs(5), SongStatus::Playing),
+            start,
         ));
+        bard.apply_event(AppEvent::ToggleHidden);
+        bard.apply_event(AppEvent::ToggleHidden);
 
-        coordinator.apply_event(snapshot(2, SongStatus::Playing, 1.0));
-        coordinator.apply_event(AppEvent::ToggleHidden);
-        assert!(matches!(
-            coordinator.frame_at(Instant::now()).0,
-            RenderedFrame::Hidden
-        ));
-        coordinator.apply_event(AppEvent::ToggleHidden);
-        coordinator.apply_event(AppEvent::PlayerUnavailable {
-            generation: 2,
-            player: ":1.42".to_compact_string(),
-        });
-        assert!(matches!(
-            coordinator.frame_at(Instant::now()).0,
-            RenderedFrame::NoPlayer
-        ));
+        assert_eq!(
+            playback_position(
+                bard.song.as_ref().unwrap(),
+                bard.synced_at,
+                start + Duration::from_secs(3)
+            ),
+            Duration::from_secs(8)
+        );
     }
 
     struct BrokenPipeWriter;
@@ -460,8 +342,8 @@ mod tests {
 
     #[test]
     fn broken_pipe_is_a_normal_exit() {
-        let mut coordinator = Coordinator::new(100);
+        let mut bard = Bard::new(100);
         let (_tx, rx) = mpsc::channel();
-        assert!(coordinator.run(rx, &mut BrokenPipeWriter).is_ok());
+        assert!(bard.run(rx, &mut BrokenPipeWriter).is_ok());
     }
 }

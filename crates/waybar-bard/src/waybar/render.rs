@@ -5,9 +5,10 @@ use compact_str::{CompactString, ToCompactString, format_compact};
 
 use crate::models::WaybarOutput;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub enum RenderedFrame {
     Hidden,
+    #[default]
     NoPlayer,
     Paused,
     NoLyrics {
@@ -19,7 +20,6 @@ pub enum RenderedFrame {
         alt: CompactString,
     },
 }
-
 pub fn render_if_changed<W: Write>(
     writer: &mut W,
     last_frame: &mut Option<RenderedFrame>,
@@ -30,7 +30,8 @@ pub fn render_if_changed<W: Write>(
     }
 
     render_just(writer, &next_frame)?;
-    last_frame.replace(next_frame);
+    last_frame.replace(next_frame.clone());
+
     Ok(true)
 }
 

@@ -2,9 +2,10 @@ use std::io::{self, BufWriter};
 use std::sync::mpsc;
 
 use anyhow::Result;
+use log::info;
 
 use crate::app::{
-    Coordinator, spawn_candidate_watchers, spawn_player_manager, spawn_seeked_watcher,
+    Bard, spawn_candidate_watchers, spawn_player_manager, spawn_seeked_watcher,
     spawn_signal_watcher,
 };
 use crate::cli::CliAction;
@@ -15,6 +16,8 @@ mod models;
 mod waybar;
 
 fn main() -> Result<()> {
+    env_logger::init();
+    info!("Starting waybar-bard v{}", env!("CARGO_PKG_VERSION"));
     let offset_ms = match cli::parse()? {
         CliAction::Run(config) => config.offset_ms,
         CliAction::Help => {
@@ -37,5 +40,5 @@ fn main() -> Result<()> {
 
     let stdout = io::stdout();
     let mut output = BufWriter::new(stdout.lock());
-    Coordinator::new(offset_ms).run(event_rx, &mut output)
+    Bard::new(offset_ms).run(event_rx, &mut output)
 }

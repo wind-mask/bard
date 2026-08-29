@@ -7,6 +7,15 @@ pub struct LyricLine {
     pub text: String,
     pub translation: Option<String>,
 }
+impl Default for LyricLine {
+    fn default() -> Self {
+        Self {
+            timestamp: Duration::default(),
+            text: String::default(),
+            translation: None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct LyricsStatus<'a> {

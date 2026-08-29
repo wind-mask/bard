@@ -1,3 +1,4 @@
+use log::{debug, error};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -13,7 +14,7 @@ use zbus::{
     message::Type,
 };
 
-use super::event::{AppEvent, SeekSource};
+use super::event::AppEvent;
 
 const MPRIS_NAMESPACE: &str = "org.mpris.MediaPlayer2";
 const RETRY_DELAY: Duration = Duration::from_secs(2);
@@ -35,20 +36,19 @@ pub fn spawn_signal_watcher(events: Sender<AppEvent>) -> Result<()> {
 
 pub fn spawn_player_manager(events: Sender<AppEvent>, rescans: Receiver<()>) {
     thread::spawn(move || {
-        let mut generation = 0_u64;
         loop {
             let player = match player::find_playing_player() {
                 Ok(Some(player)) => player,
                 Ok(None) => {
-                    let _ = events.send(AppEvent::NoActivePlayer { generation });
+                    let _ = events.send(AppEvent::NoActivePlayer {});
                     if !wait_for_rescan(&rescans) {
                         break;
                     }
                     continue;
                 }
                 Err(error) => {
-                    eprintln!("waybar-bard: failed to find a playing MPRIS player: {error}");
-                    let _ = events.send(AppEvent::NoActivePlayer { generation });
+                    error!("waybar-bard: failed to find a playing MPRIS player: {error}");
+                    let _ = events.send(AppEvent::NoActivePlayer {});
                     if !wait_for_rescan(&rescans) {
                         break;
                     }
@@ -56,24 +56,16 @@ pub fn spawn_player_manager(events: Sender<AppEvent>, rescans: Receiver<()>) {
                 }
             };
 
-            generation = generation.wrapping_add(1);
-            let player_name = player.unique_name().to_compact_string();
-            if let Err(error) = watch_selected_player(&player, generation, &events) {
-                eprintln!("waybar-bard: selected player watcher failed: {error}");
-                let _ = events.send(AppEvent::PlayerUnavailable {
-                    generation,
-                    player: player_name,
-                });
+            if let Err(error) = watch_selected_player(&player, &events) {
+                error!("waybar-bard: selected player watcher failed: {error}");
+                let _ = events.send(AppEvent::PlayerUnavailable {});
                 if !wait_for_rescan(&rescans) {
                     break;
                 }
             }
 
             while rescans.try_recv().is_ok() {}
-            if events
-                .send(AppEvent::NoActivePlayer { generation })
-                .is_err()
-            {
+            if events.send(AppEvent::NoActivePlayer {}).is_err() {
                 break;
             }
         }
@@ -84,7 +76,7 @@ pub fn spawn_seeked_watcher(events: Sender<AppEvent>) {
     thread::spawn(move || {
         loop {
             if let Err(error) = watch_seeked_signals(&events) {
-                eprintln!("waybar-bard: zbus Seeked watcher failed: {error}");
+                error!("waybar-bard: zbus Seeked watcher failed: {error}");
                 thread::sleep(RETRY_DELAY);
             }
         }
@@ -96,7 +88,7 @@ pub fn spawn_candidate_watchers(rescans: SyncSender<()>) {
     thread::spawn(move || {
         loop {
             if let Err(error) = watch_name_owner_changes(&names) {
-                eprintln!("waybar-bard: MPRIS name watcher failed: {error}");
+                error!("waybar-bard: MPRIS name watcher failed: {error}");
                 thread::sleep(RETRY_DELAY);
             }
         }
@@ -105,7 +97,7 @@ pub fn spawn_candidate_watchers(rescans: SyncSender<()>) {
     thread::spawn(move || {
         loop {
             if let Err(error) = watch_player_property_changes(&rescans) {
-                eprintln!("waybar-bard: MPRIS property watcher failed: {error}");
+                error!("waybar-bard: MPRIS property watcher failed: {error}");
                 thread::sleep(RETRY_DELAY);
             }
         }
@@ -129,75 +121,77 @@ fn notify_rescan(rescans: &SyncSender<()>) -> bool {
     }
 }
 
-fn watch_selected_player(
-    selected: &mpris::Player,
-    generation: u64,
-    events: &Sender<AppEvent>,
-) -> Result<()> {
-    let mut last_song = player::song_from_player(selected)?;
-    if last_song.status == SongStatus::Stopped {
+fn watch_selected_player(selected: &mpris::Player, events: &Sender<AppEvent>) -> Result<()> {
+    let mut song = player::song_from_player(selected)?;
+    if song.status == SongStatus::Stopped {
         return Ok(());
     }
     let mut last_sync = Instant::now();
-    if !send_snapshot(events, generation, selected, last_song.clone(), last_sync) {
+    if !send_song(events, selected, song.clone(), last_sync) {
         return Ok(());
     }
-
     let player_events = selected
         .events()
         .context("Could not start MPRIS event stream")?;
     for event in player_events {
+        debug!("waybar-bard: MPRIS event: {event:?}");
         match event? {
             mpris::Event::PlayerShutDown | mpris::Event::Stopped => return Ok(()),
-            mpris::Event::Playing | mpris::Event::Paused => {
-                let song = player::song_from_player(selected)?;
-                if song.status == SongStatus::Stopped {
+            mpris::Event::Playing => {
+                let next = player::song_from_player(selected)?;
+                if next.status == SongStatus::Stopped {
                     return Ok(());
                 }
-                last_song = song.clone();
+                song = next;
                 last_sync = Instant::now();
-                if !send_snapshot(events, generation, selected, song, last_sync) {
+                if !send_song(events, selected, song.clone(), last_sync) {
+                    return Ok(());
+                }
+            }
+            mpris::Event::Paused => {
+                song.position = estimated_position(&song, last_sync);
+                song.status = SongStatus::Paused;
+                last_sync = Instant::now();
+                if !send_song(events, selected, song.clone(), last_sync) {
                     return Ok(());
                 }
             }
             mpris::Event::TrackChanged(_) => {
-                let old_position = estimated_position(&last_song, last_sync);
+                let old_position = estimated_position(&song, last_sync);
                 let candidate = player::song_from_player(selected)?;
-                let song = confirm_track_position(selected, candidate, old_position)?;
-                if song.status == SongStatus::Stopped {
+                let next = confirm_track_position(selected, candidate, old_position)?;
+                if next.status == SongStatus::Stopped {
                     return Ok(());
                 }
-                last_song = song.clone();
+                song = next;
                 last_sync = Instant::now();
-                if !send_snapshot(events, generation, selected, song, last_sync) {
+                if !send_song(events, selected, song.clone(), last_sync) {
                     return Ok(());
                 }
             }
             mpris::Event::TrackMetadataChanged { .. } => {
-                let old_position = estimated_position(&last_song, last_sync);
-                let mut song = player::song_from_player(selected)?;
-                if song.id != last_song.id {
-                    song = confirm_track_position(selected, song, old_position)?;
+                let old_position = estimated_position(&song, last_sync);
+                let mut next = player::song_from_player(selected)?;
+                if next.id != song.id {
+                    next = confirm_track_position(selected, next, old_position)?;
                 }
-                if song.status == SongStatus::Stopped {
+                if next.status == SongStatus::Stopped {
                     return Ok(());
                 }
-                last_song = song.clone();
+                song = next;
                 last_sync = Instant::now();
-                if !send_snapshot(events, generation, selected, song, last_sync) {
+                if !send_song(events, selected, song.clone(), last_sync) {
                     return Ok(());
                 }
             }
             mpris::Event::Seeked { position_in_us } => {
                 let position = Duration::from_micros(position_in_us);
-                last_song.position = position;
+                song.position = position;
                 last_sync = Instant::now();
                 if events
                     .send(AppEvent::Seeked {
-                        generation: Some(generation),
                         player: selected.unique_name().to_compact_string(),
                         position,
-                        source: SeekSource::Mpris,
                         observed_at: last_sync,
                     })
                     .is_err()
@@ -217,16 +211,14 @@ fn watch_selected_player(
     Ok(())
 }
 
-fn send_snapshot(
+fn send_song(
     events: &Sender<AppEvent>,
-    generation: u64,
     selected: &mpris::Player,
     song: SongInfo,
     observed_at: Instant,
 ) -> bool {
     events
-        .send(AppEvent::PlayerSnapshot {
-            generation,
+        .send(AppEvent::ChangeSong {
             player: selected.unique_name().to_compact_string(),
             song,
             observed_at,
@@ -305,10 +297,8 @@ fn watch_seeked_signals(events: &Sender<AppEvent>) -> Result<()> {
         }
         if events
             .send(AppEvent::Seeked {
-                generation: None,
                 player: sender.to_compact_string(),
                 position: Duration::from_micros(position_in_us as u64),
-                source: SeekSource::Zbus,
                 observed_at: Instant::now(),
             })
             .is_err()
@@ -375,6 +365,7 @@ mod tests {
             title: "title".to_compact_string(),
             position: Duration::from_secs_f64(position),
             status,
+            lyrics: None,
             url: None,
         }
     }

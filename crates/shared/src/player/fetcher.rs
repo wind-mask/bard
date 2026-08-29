@@ -1,4 +1,7 @@
-use crate::models::song::{SongInfo, SongStatus};
+use crate::{
+    lyrics::get_lyrics,
+    models::song::{SongInfo, SongStatus},
+};
 use anyhow::{Context, Result};
 use compact_str::{CompactString, ToCompactString, format_compact};
 use mpris::{Player, PlayerFinder};
@@ -96,10 +99,11 @@ pub fn song_from_player(player: &Player) -> Result<SongInfo> {
         &artist,
         &title,
     );
-
+    let lyrics = get_lyrics(&url)?;
     Ok(SongInfo {
         id,
         artist,
+        lyrics,
         title,
         position,
         status: match status {
